@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gun Arena</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22none%22 stroke=%22%23ff8a1f%22 stroke-width=%223%22/%3E%3Cpath d=%22M16 2v10M16 20v10M2 16h10M20 16h10%22 stroke=%22%23ff8a1f%22 stroke-width=%223%22/%3E%3C/svg%3E">
+  <link rel="preload" href="vendor/fonts/russo-one-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">
     {
@@ -25,29 +26,41 @@
     <div id="scope"><div class="lens"></div></div>
     <div id="vignette"></div>
     <div id="dmg-indicators"></div>
-    <div id="topbar"><div id="score-top"></div><div id="timer">0:00</div></div>
+    <div id="topbar"><div id="score-top"></div><div id="timer-wrap"><span class="ico" data-icon="clock"></span><span id="timer">0:00</span></div></div>
     <div id="killfeed"></div>
     <div id="toast"></div>
     <div id="pickup-hint">Здоровье полное</div>
     <div id="click-hint">Кликните, чтобы играть</div>
-    <div id="reload-bar"><div id="reload-fill"></div><span>Перезарядка</span></div>
-    <div id="bottom-left">
-      <div class="hp-label">ЗДОРОВЬЕ</div>
-      <div class="hp-row"><span id="hp-text">100</span><div class="hp-bar"><div id="hp-fill"></div></div></div>
+    <div id="reload-bar"><span>ПЕРЕЗАРЯДКА</span><div class="track"><div id="reload-fill"></div></div></div>
+    <div id="bottom-left" class="plate">
+      <div class="hp-heart ico" data-icon="heart"></div>
+      <div class="hp-body">
+        <span id="hp-text">100</span>
+        <div class="hp-bar"><div id="hp-fill"></div><div class="hp-ticks"></div></div>
+      </div>
     </div>
     <div id="bottom-right">
-      <div id="weapon-name"></div>
-      <div class="ammo"><span id="ammo-cur">0</span><span class="sep">/</span><span id="ammo-max">0</span></div>
+      <div class="plate ammo-plate">
+        <div id="weapon-icon" class="wicon"></div>
+        <div class="ammo-col">
+          <div class="ammo"><span class="ico bullet" data-icon="bullet"></span><span id="ammo-cur">0</span><span class="sep">/</span><span id="ammo-max">0</span></div>
+          <div id="weapon-name"></div>
+        </div>
+      </div>
       <div id="slots"></div>
     </div>
-    <div id="death"><div class="title">Вы погибли</div><div id="death-by"></div><div id="death-timer"></div></div>
-    <div id="scoreboard"><table><thead><tr><th>Игрок</th><th>Убийства</th><th>Смерти</th></tr></thead><tbody id="scoreboard-body"></tbody></table></div>
+    <div id="death">
+      <div class="ribbon"><span class="ico" data-icon="skull"></span><span class="title">ВЫ ПОГИБЛИ</span></div>
+      <div id="death-by"></div>
+      <div id="death-timer"></div>
+    </div>
+    <div id="scoreboard"><div class="board-title">ТАБЛИЦА СЧЁТА</div><table><thead><tr><th>Игрок</th><th>Убийства</th><th>Смерти</th></tr></thead><tbody id="scoreboard-body"></tbody></table></div>
   </div>
 
   <div id="ui">
     <section id="screen-menu" class="screen">
       <div class="brand">
-        <div class="logo">GUN<span>ARENA</span></div>
+        <div class="logo"><span class="w1">GUN</span><span class="w2">ARENA</span></div>
         <div class="tagline">Сетевой шутер для игры с друзьями прямо в браузере</div>
       </div>
       <div class="panel menu-panel">
@@ -61,7 +74,7 @@
         </div>
         <button class="btn primary" data-go="create">Создать комнату</button>
         <button class="btn" data-go="join">Войти по коду</button>
-        <button class="btn" id="btn-training">Тренировка с ботами</button>
+        <button class="btn yellow" id="btn-training">Тренировка с ботами</button>
         <button class="btn ghost" data-go="settings">Настройки</button>
       </div>
       <div class="controls-help">
@@ -119,6 +132,7 @@
 
     <section id="screen-lobby" class="screen hidden">
       <div class="panel wide lobby">
+        <h2>Лобби</h2>
         <div class="lobby-head">
           <div>
             <div class="muted small" id="lobby-kind">Код комнаты</div>
@@ -145,7 +159,7 @@
           </div>
         </div>
         <div class="row end">
-          <button class="btn ghost" id="lobby-leave">Выйти</button>
+          <button class="btn danger" id="lobby-leave">Выйти</button>
           <button class="btn" id="lobby-ready">Готов</button>
           <button class="btn primary" id="lobby-start">Начать матч</button>
         </div>
@@ -180,7 +194,7 @@
         <button class="btn primary" id="pause-resume">Продолжить</button>
         <button class="btn" id="pause-settings">Настройки</button>
         <button class="btn" id="pause-invite">Скопировать приглашение</button>
-        <button class="btn ghost" id="pause-leave">Покинуть матч</button>
+        <button class="btn danger" id="pause-leave">Покинуть матч</button>
       </div>
     </section>
 

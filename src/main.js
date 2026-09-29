@@ -493,11 +493,11 @@ function onMatchEnd(msg) {
   }
   $('results-title').textContent = title;
   const mine = rows.find((r) => r.id === me);
-  $('results-sub').textContent = mine ? `Ваш счёт: ${mine.kills} убийств, ${mine.deaths} смертей` : '';
+  $('results-sub').textContent = mine ? `Ваш счёт · убийства: ${mine.kills} · смерти: ${mine.deaths}` : '';
   $('results-body').innerHTML = rows.map((r, i) => {
     const color = msg.teams ? TEAM_COLORS[r.team] : r.color;
     const kd = r.deaths ? (r.kills / r.deaths).toFixed(2) : r.kills.toFixed(2);
-    return `<tr class="${r.id === me ? 'me' : ''}${i === 0 ? ' first' : ''}"><td>${i + 1}</td><td><span style="color:${color}">●</span> ${esc(r.name)}</td><td>${r.kills}</td><td>${r.deaths}</td><td>${kd}</td></tr>`;
+    return `<tr class="${r.id === me ? 'me' : ''}"><td><span class="rank r${i + 1}">${i + 1}</span></td><td><span style="color:${color}">●</span> ${esc(r.name)}</td><td>${r.kills}</td><td>${r.deaths}</td><td>${kd}</td></tr>`;
   }).join('');
   show('results');
   if (state.host) {

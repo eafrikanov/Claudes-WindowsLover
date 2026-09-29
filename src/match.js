@@ -22,7 +22,7 @@ export function makeBots(count, teams, startIndex = 0) {
     bots.push({
       id: `bot${startIndex + i}`,
       name: `${BOT_NAMES[(startIndex + i) % BOT_NAMES.length]} [бот]`,
-      color: '#8a8f98',
+      color: '#d3dcef',
       team: teams ? (startIndex + i) % 2 : 0,
       bot: true,
     });

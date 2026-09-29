@@ -1,4 +1,5 @@
 import { WEAPONS } from './weapons.js';
+import { ICONS, WEAPON_ICONS } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -15,7 +16,9 @@ export class Hud {
       death: $('death'), deathBy: $('death-by'), deathTimer: $('death-timer'), board: $('scoreboard'), boardBody: $('scoreboard-body'),
       toast: $('toast'), reload: $('reload-bar'), reloadFill: $('reload-fill'), pickupHint: $('pickup-hint'), clickHint: $('click-hint'),
     };
-    this.el.slots.innerHTML = WEAPONS.map((w, i) => `<div class="slot" data-i="${i}"><span class="key">${w.key}</span><span class="nm">${w.name}</span></div>`).join('');
+    for (const el of document.querySelectorAll('[data-icon]')) el.innerHTML = ICONS[el.dataset.icon];
+    this.el.wicon = $('weapon-icon');
+    this.el.slots.innerHTML = WEAPONS.map((w, i) => `<div class="slot" data-i="${i}" title="${w.name}"><span class="key">${w.key}</span><span class="wicon">${WEAPON_ICONS[w.id]}</span></div>`).join('');
     this.hitT = 0;
     this.toastT = 0;
     this.indicators = [];
@@ -36,6 +39,10 @@ export class Hud {
   weapon(i, ammo) {
     const w = WEAPONS[i];
     this.el.wname.textContent = `${w.name} · ${w.kind}`;
+    if (this.el.wicon.dataset.id !== w.id) {
+      this.el.wicon.dataset.id = w.id;
+      this.el.wicon.innerHTML = WEAPON_ICONS[w.id];
+    }
     this.el.ammo.textContent = ammo;
     this.el.ammoMax.textContent = w.mag;
     this.el.ammo.classList.toggle('low', ammo <= Math.ceil(w.mag * 0.25));
@@ -79,7 +86,8 @@ export class Hud {
   kill(killer, victim, weapon, head, local) {
     const row = document.createElement('div');
     row.className = `kf${local ? ' me' : ''}`;
-    row.innerHTML = `<span style="color:${killer.color}">${esc(killer.name)}</span><span class="kw">${esc(WEAPONS[weapon]?.name || '')}${head ? ' ◎' : ''}</span><span style="color:${victim.color}">${esc(victim.name)}</span>`;
+    const w = WEAPONS[weapon];
+    row.innerHTML = `<span style="color:${killer.color}">${esc(killer.name)}</span><span class="wicon">${w ? WEAPON_ICONS[w.id] : ''}</span>${head ? `<span class="ico">${ICONS.head}</span>` : ''}<span style="color:${victim.color}">${esc(victim.name)}</span>`;
     this.el.feed.prepend(row);
     while (this.el.feed.children.length > 5) this.el.feed.lastChild.remove();
     setTimeout(() => row.classList.add('fade'), 5000);
