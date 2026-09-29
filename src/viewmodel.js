@@ -78,7 +78,8 @@ export class ViewModel {
       holder.visible = false;
       this.root.add(holder);
       holder.traverse((o) => { o.frustumCulled = false; });
-      return { def, model, holder, flash, magHome: model.mag.position.clone(), pumpHome: model.pump ? model.pump.position.clone() : null };
+      const rear = model.group.children.filter((o) => o.position.z > 0.12);
+      return { def, model, holder, flash, rear, magHome: model.mag.position.clone(), pumpHome: model.pump ? model.pump.position.clone() : null };
     });
 
     this.current = 0;
@@ -248,5 +249,6 @@ export class ViewModel {
     this.camera.fov = 60 - this.aim * 12;
     this.camera.updateProjectionMatrix();
     this.root.visible = !(def.scope && this.aim > 0.9);
+    for (const o of g.rear) o.visible = this.aim < 0.6;
   }
 }

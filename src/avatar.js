@@ -207,6 +207,8 @@ export class Avatar {
   die() {
     this.dead = true;
     this.deathT = 0;
+    this.hitT = 0;
+    for (const k of ['uniform', 'vest', 'skin']) this.mats[k].emissive.setRGB(0, 0, 0);
   }
 
   revive() {

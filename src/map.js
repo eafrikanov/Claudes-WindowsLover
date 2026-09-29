@@ -166,7 +166,7 @@ class MapBuilder {
 
 function buildPort(b) {
   const S = 32;
-  b.box(0, -1, 0, S * 2, 1, S * 2, 'asphalt', { texScale: 6 });
+  b.box(0, -1, 0, S * 2, 1, S * 2, 'asphalt', { texScale: 4 });
   b.wall('x', -S, S, -S, 0, 5, 1, 'concrete');
   b.wall('x', -S, S, S, 0, 5, 1, 'concrete');
   b.wall('z', -S, S, -S, 0, 5, 1, 'concrete');
@@ -226,7 +226,7 @@ function buildPort(b) {
   b.crate(18.2, 1.2, 13.5, 1);
 
   // Бетонные блоки и ящики как укрытия.
-  const covers = [[-8, 14], [9, -14], [-27, -8], [27, 8], [-4, -15], [5, 15], [-27, 26], [27, -27]];
+  const covers = [[-8, 14], [9, -14], [-23, -12], [23, 12], [-4, -15], [5, 15], [-27, 26], [27, -27]];
   for (const [x, z] of covers) b.box(x, 0, z, 2.4, 1.1, 0.8, 'concrete', { texScale: 1.5 });
   const crates = [[-11, 12], [12, -11], [-26, 14], [26, -12], [-12, -27], [12, 26], [-28, -28], [28, 28], [-28, 28], [28, -20]];
   for (const [x, z] of crates) {
@@ -314,13 +314,13 @@ function buildRuins(b) {
 const ENV = {
   port: {
     elevation: 38, azimuth: 150, turbidity: 6, rayleigh: 1.4,
-    sun: 0xfff1dc, sunIntensity: 3.2, hemiSky: 0xbcd4ff, hemiGround: 0x6b5d4c, hemiIntensity: 0.9,
-    fog: 0xc8d4e0, fogDensity: 0.006, exposure: 0.55,
+    sun: 0xfff0d8, sunIntensity: 3.4, hemiSky: 0xc8d8f0, hemiGround: 0x7a6650, hemiIntensity: 0.45,
+    fog: 0xcfd6dc, fogDensity: 0.005, exposure: 0.62, envIntensity: 0.18,
   },
   ruins: {
     elevation: 9, azimuth: 250, turbidity: 9, rayleigh: 2.6,
-    sun: 0xffb070, sunIntensity: 3.4, hemiSky: 0xa9b8dd, hemiGround: 0x7a5a40, hemiIntensity: 0.8,
-    fog: 0xd8a888, fogDensity: 0.009, exposure: 0.5,
+    sun: 0xffb070, sunIntensity: 3.6, hemiSky: 0xb0bcd8, hemiGround: 0x7a5a40, hemiIntensity: 0.45,
+    fog: 0xd8a888, fogDensity: 0.008, exposure: 0.6, envIntensity: 0.22,
   },
 };
 

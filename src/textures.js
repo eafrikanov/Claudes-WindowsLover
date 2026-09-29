@@ -170,7 +170,7 @@ const generators = {
     const stains = contrast(fbm(size, 3, 4, seed + 2), 0.45, 0.8);
     const pores = fbm(size, 64, 2, seed + 3);
     const height = new Float32Array(size * size);
-    for (let i = 0; i < height.length; i++) height[i] = fine[i] * 0.6 + (pores[i] < 0.28 ? -0.5 : 0);
+    for (let i = 0; i < height.length; i++) height[i] = fine[i] * 0.6 + (pores[i] < 0.22 ? -0.2 : 0);
     cracks(size, height, 3, seed + 4, 0.6);
     const color = rgbCanvas(size, (i, c) => {
       const v = 0.52 + (base[i] - 0.5) * 0.35 + (fine[i] - 0.5) * 0.12 - stains[i] * 0.12 + Math.min(0, height[i]) * 0.25;
@@ -182,7 +182,7 @@ const generators = {
 
   asphalt(size, seed) {
     const base = fbm(size, 6, 5, seed);
-    const grit = fbm(size, 128, 1, seed + 1);
+    const grit = fbm(size, 64, 2, seed + 1);
     const patches = contrast(fbm(size, 2, 4, seed + 2), 0.5, 0.75);
     const height = grit.map((g, i) => g * 0.8 + base[i] * 0.2);
     const color = rgbCanvas(size, (i, c) => {
@@ -190,15 +190,15 @@ const generators = {
       c[0] = v; c[1] = v * 1.0; c[2] = v * 1.03;
     });
     const rough = grit.map((g) => 0.88 + (g - 0.5) * 0.15);
-    return material(size, color, height, rough, 4);
+    return material(size, color, height, rough, 1.5);
   },
 
   brick(size, seed) {
-    const rows = 8;
-    const cols = 4;
+    const rows = 12;
+    const cols = 5;
     const r = rng(seed);
     const tint = [];
-    for (let i = 0; i < rows * cols; i++) tint.push([0.55 + r() * 0.2, 0.22 + r() * 0.1, 0.16 + r() * 0.06, r()]);
+    for (let i = 0; i < rows * cols; i++) tint.push([0.46 + r() * 0.16, 0.22 + r() * 0.08, 0.17 + r() * 0.05, r()]);
     const fine = fbm(size, 32, 4, seed + 1);
     const chips = fbm(size, 16, 3, seed + 2);
     const height = new Float32Array(size * size);
@@ -433,6 +433,7 @@ export class TextureLibrary {
       accent: std({ color: 0xd1661f, metalness: 0.4, roughness: 0.7 }),
       brass: new THREE.MeshStandardMaterial({ color: 0xc9a045, metalness: 1, roughness: 0.3 }),
       wood: new THREE.MeshStandardMaterial({ map: wood.map, normalMap: wood.normalMap, roughnessMap: wood.roughnessMap, roughness: 1 }),
+      clearGlass: new THREE.MeshStandardMaterial({ color: 0x88aacc, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.12, depthWrite: false }),
       glass: new THREE.MeshStandardMaterial({ color: 0x3060a0, metalness: 0.2, roughness: 0.05, emissive: 0x0a1a33, transparent: true, opacity: 0.85 }),
       redDot: new THREE.MeshBasicMaterial({ color: 0xff2020 }),
       glowGreen: new THREE.MeshBasicMaterial({ color: 0x40ff60 }),

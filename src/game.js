@@ -212,7 +212,7 @@ export class Game {
     skyScene.remove(sky);
     scene.add(sky);
     scene.environment = this.envTarget.texture;
-    scene.environmentIntensity = 0.55;
+    scene.environmentIntensity = env.envIntensity;
     scene.fog = new THREE.FogExp2(env.fog, env.fogDensity);
 
     const hemi = new THREE.HemisphereLight(env.hemiSky, env.hemiGround, env.hemiIntensity);
@@ -242,7 +242,7 @@ export class Game {
     this.vm = new ViewModel(this.textures);
     this.vm.setLights(env);
     this.vm.scene.environment = this.envTarget.texture;
-    this.vm.scene.environmentIntensity = 0.7;
+    this.vm.scene.environmentIntensity = env.envIntensity * 1.3;
     this.vm.resize(this.camera.aspect);
 
     this.scene = scene;

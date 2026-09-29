@@ -7,21 +7,21 @@ export const WEAPONS = [
     damage: 28, head: 2, fireRate: 0.17, auto: false, mag: 14, reload: 1.25, pellets: 1,
     spread: 0.008, moveSpread: 0.025, recoil: 0.05, kick: 0.035, range: 120, adsFov: 58,
     sound: { freq: 900, body: 140, decay: 0.12, gain: 0.55 },
-    hip: [0.16, -0.17, -0.36], ads: [0, 0, -0.32],
+    hip: [0.15, -0.16, -0.4], ads: [0, 0, -0.38],
   },
   {
     id: 'rifle', name: 'Вихрь', kind: 'Штурмовая винтовка', key: '2',
     damage: 18, head: 1.8, fireRate: 0.092, auto: true, mag: 30, reload: 2.0, pellets: 1,
     spread: 0.012, moveSpread: 0.035, recoil: 0.028, kick: 0.028, range: 200, adsFov: 50,
     sound: { freq: 1400, body: 90, decay: 0.16, gain: 0.6 },
-    hip: [0.14, -0.16, -0.3], ads: [0, 0, -0.2],
+    hip: [0.14, -0.17, -0.36], ads: [0, 0, -0.3],
   },
   {
     id: 'shotgun', name: 'Гром', kind: 'Дробовик', key: '3',
     damage: 11, head: 1.4, fireRate: 0.85, auto: false, mag: 6, reload: 2.4, pellets: 9,
     spread: 0.065, moveSpread: 0.075, recoil: 0.11, kick: 0.07, range: 45, adsFov: 60,
     sound: { freq: 500, body: 60, decay: 0.35, gain: 0.85 },
-    hip: [0.15, -0.17, -0.28], ads: [0, 0, -0.2],
+    hip: [0.15, -0.18, -0.36], ads: [0, 0, -0.3],
   },
   {
     id: 'sniper', name: 'Сокол', kind: 'Снайперская винтовка', key: '4',
@@ -29,7 +29,7 @@ export const WEAPONS = [
     spread: 0.06, moveSpread: 0.1, adsSpread: 0.0005, recoil: 0.09, kick: 0.08, range: 400, adsFov: 16,
     scope: true,
     sound: { freq: 700, body: 45, decay: 0.5, gain: 0.9 },
-    hip: [0.15, -0.17, -0.26], ads: [0, 0, -0.2],
+    hip: [0.16, -0.2, -0.38], ads: [0, 0, -0.2],
   },
 ];
 
@@ -66,7 +66,7 @@ function put(parent, mesh, x, y, z, rx = 0, ry = 0, rz = 0) {
 
 function rail(parent, mat, x, y, z, len, count) {
   put(parent, box(0.022, 0.006, len, mat), x, y, z);
-  for (let i = 0; i < count; i++) put(parent, box(0.024, 0.005, 0.005, mat), x, y + 0.005, z - len / 2 + (i + 0.5) * (len / count));
+  for (let i = 0; i < count; i++) put(parent, box(0.024, 0.004, 0.004, mat), x, y + 0.005, z - len / 2 + (i + 0.5) * (len / count));
 }
 
 function pistol(m) {
@@ -88,7 +88,6 @@ function pistol(m) {
   put(g, box(0.003, 0.003, 0.002, m.glowGreen), 0, 0.083, -0.1635);
   put(g, box(0.003, 0.003, 0.002, m.glowGreen), -0.006, 0.08, 0.0165);
   put(g, box(0.003, 0.003, 0.002, m.glowGreen), 0.006, 0.08, 0.0165);
-  put(g, box(0.02, 0.02, 0.02, m.accent), 0, 0.03, 0.012);
   const mag = new THREE.Group();
   put(mag, box(0.022, 0.012, 0.04, m.accent), 0, -0.1, 0.03);
   put(g, mag, 0, 0, 0);
@@ -108,7 +107,7 @@ function rifle(m) {
     for (const s of [-1, 1]) put(g, rbox(0.004, 0.012, 0.028, 0.002, m.darkSteel), s * 0.021, 0.04, -0.15 - i * 0.038);
   }
   put(g, box(0.004, 0.004, 0.26, m.darkSteel), 0, 0.068, -0.25);
-  rail(g, m.darkSteel, 0, 0.07, -0.08, 0.42, 22);
+  rail(g, m.darkSteel, 0, 0.07, -0.1, 0.3, 14);
   put(g, cyl(0.009, 0.009, 0.16, m.darkSteel), 0, 0.044, -0.45);
   put(g, cyl(0.014, 0.014, 0.012, m.steel), 0, 0.044, -0.39);
   const brake = put(g, cyl(0.013, 0.013, 0.06, m.darkSteel, 8), 0, 0.044, -0.55);
@@ -127,10 +126,10 @@ function rifle(m) {
   for (let i = 0; i < 4; i++) put(mag, rbox(0.026, 0.045, 0.058, 0.004, m.polymer), 0, -0.03 - i * 0.038, -0.07 - i * 0.009, -0.18 - i * 0.07);
   put(mag, box(0.029, 0.01, 0.062, m.darkSteel), 0, -0.175, -0.108, -0.36);
   put(g, mag, 0, 0, 0);
-  put(g, rbox(0.03, 0.028, 0.05, 0.006, m.darkSteel), 0, 0.088, -0.07);
-  put(g, cyl(0.016, 0.016, 0.004, m.glass), 0, 0.094, -0.094);
-  put(g, cyl(0.016, 0.016, 0.004, m.glass), 0, 0.094, -0.046);
-  put(g, box(0.003, 0.003, 0.001, m.redDot), 0, 0.094, -0.07);
+  for (const s of [-1, 1]) put(g, rbox(0.005, 0.03, 0.05, 0.002, m.darkSteel), s * 0.0135, 0.09, -0.07);
+  put(g, rbox(0.032, 0.005, 0.05, 0.002, m.darkSteel), 0, 0.106, -0.07);
+  put(g, cyl(0.012, 0.012, 0.003, m.clearGlass), 0, 0.094, -0.094);
+  put(g, box(0.0018, 0.0018, 0.001, m.redDot), 0, 0.094, -0.094);
   put(g, rbox(0.036, 0.008, 0.06, 0.003, m.darkSteel), 0, 0.074, -0.07);
   return { group: g, muzzle: new THREE.Vector3(0, 0.044, -0.59), sightY: 0.094, mag, eject: new THREE.Vector3(0.022, 0.05, -0.02) };
 }
