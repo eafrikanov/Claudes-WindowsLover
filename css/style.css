@@ -107,7 +107,7 @@ html, body {
 .row.end { justify-content: flex-end; margin-top: 8px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
-.error { color: #ffb0a8; font-size: 14px; min-height: 18px; text-shadow: var(--outline-s); }
+.error { color: #ffc2bb; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.4; min-height: 18px; }
 
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field > span { font-size: 13px; color: var(--muted); text-transform: uppercase; }

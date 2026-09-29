@@ -1,3 +1,5 @@
+import { TURN } from './config.js';
+
 const PREFIX = 'wlarena-v1-';
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -12,9 +14,30 @@ export function normalizeCode(s) {
 }
 
 // Для локальной проверки можно указать свой PeerServer: ?peerHost=localhost&peerPort=9000&peerPath=/
-function peerOptions() {
+const DEFAULT_ICE = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+];
+
+let iceCache = null;
+async function iceServers() {
+  if (iceCache) return iceCache;
+  let extra = [];
+  if (TURN.meteredApp && TURN.meteredApiKey) {
+    try {
+      const r = await fetch(`https://${TURN.meteredApp}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN.meteredApiKey)}`);
+      if (r.ok) extra = await r.json();
+    } catch (err) {
+      console.warn('TURN credentials', err);
+    }
+  }
+  iceCache = [...DEFAULT_ICE, ...extra];
+  return iceCache;
+}
+
+async function peerOptions() {
   const q = new URLSearchParams(location.search);
-  const opts = { debug: 1 };
+  const opts = { debug: 1, config: { iceServers: await iceServers() } };
   if (q.get('peerHost')) {
     opts.host = q.get('peerHost');
     opts.port = Number(q.get('peerPort') || 9000);
@@ -58,10 +81,11 @@ export class Net {
     return Promise.resolve(this.id);
   }
 
-  host(code) {
+  async host(code) {
     this.isHost = true;
+    const opts = await peerOptions();
     return new Promise((resolve, reject) => {
-      const peer = new window.Peer(PREFIX + code, peerOptions());
+      const peer = new window.Peer(PREFIX + code, opts);
       this.peer = peer;
       let opened = false;
       peer.on('open', (id) => {
@@ -100,10 +124,11 @@ export class Net {
     conn.on('error', drop);
   }
 
-  join(code) {
+  async join(code) {
     this.isHost = false;
+    const opts = await peerOptions();
     return new Promise((resolve, reject) => {
-      const peer = new window.Peer(peerOptions());
+      const peer = new window.Peer(opts);
       this.peer = peer;
       let done = false;
       const fail = (msg) => {
@@ -113,7 +138,9 @@ export class Net {
         peer.destroy();
         reject(new Error(msg));
       };
-      const timer = setTimeout(() => fail('Хост не отвечает. Попробуйте ещё раз'), 15000);
+      const timer = setTimeout(() => fail(this.id
+        ? 'Комната найдена, но соединиться с хостом не удалось. Похоже, сеть (например, школьный Wi‑Fi) блокирует прямое соединение между устройствами. Раздайте интернет с телефона на оба компьютера или настройте ретранслятор.'
+        : 'Сервер соединений не отвечает. Проверьте интернет'), 20000);
       peer.on('open', (id) => {
         this.id = id;
         const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
