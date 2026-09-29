@@ -48,6 +48,7 @@ class MapBuilder {
     this.spawns = [];
     this.pickups = [];
     this.extra = new THREE.Group();
+    this.edges = [];
     this.rand = rng(seed);
   }
 
@@ -65,6 +66,7 @@ class MapBuilder {
     const g = boxGeometry(w, h, d, uvBox ? 0 : texScale, uvBox ? 0 : Math.floor(this.rand() * 8) / 8);
     g.translate(cx, y + h / 2, cz);
     this.material(mat, variant).geos.push(g);
+    this.edges.push(new THREE.EdgesGeometry(g));
     if (collide) this.colliders.push({ min: [cx - w / 2, y, cz - d / 2], max: [cx + w / 2, y + h, cz + d / 2] });
   }
 
@@ -96,6 +98,7 @@ class MapBuilder {
     m.position.set(cx, y + 0.6, cz);
     m.rotation.y = this.rand() * Math.PI;
     m.castShadow = m.receiveShadow = true;
+    this.edges.push(new THREE.EdgesGeometry(m.geometry, 30).translate(cx, y + 0.6, cz));
     this.extra.add(m);
     const rimMat = this.material('metalSheet').mat;
     for (const ry of [0.25, 0.95]) {
@@ -160,6 +163,9 @@ class MapBuilder {
       geos.forEach((g) => g.dispose());
     }
     group.add(this.extra);
+    const lines = new THREE.LineSegments(mergeGeometries(this.edges), new THREE.LineBasicMaterial({ color: 0x2a2230 }));
+    this.edges.forEach((g) => g.dispose());
+    group.add(lines);
     return group;
   }
 }
@@ -313,14 +319,16 @@ function buildRuins(b) {
 
 const ENV = {
   port: {
-    elevation: 38, azimuth: 150, turbidity: 6, rayleigh: 1.4,
-    sun: 0xfff0d8, sunIntensity: 3.4, hemiSky: 0xc8d8f0, hemiGround: 0x7a6650, hemiIntensity: 0.45,
-    fog: 0xcfd6dc, fogDensity: 0.005, exposure: 0.62, envIntensity: 0.18,
+    elevation: 45, azimuth: 150,
+    skyTop: 0x2f86ea, skyHorizon: 0xcdeeff, skyBottom: 0xe8f6ff, clouds: 0xffffff,
+    sun: 0xfff6e6, sunIntensity: 2.1, hemiSky: 0xd6ecff, hemiGround: 0xa89878, hemiIntensity: 1.3,
+    fog: 0xcdeeff, fogDensity: 0.0045,
   },
   ruins: {
-    elevation: 9, azimuth: 250, turbidity: 9, rayleigh: 2.6,
-    sun: 0xffb070, sunIntensity: 3.6, hemiSky: 0xb0bcd8, hemiGround: 0x7a5a40, hemiIntensity: 0.45,
-    fog: 0xd8a888, fogDensity: 0.008, exposure: 0.6, envIntensity: 0.22,
+    elevation: 20, azimuth: 250,
+    skyTop: 0x4a63c9, skyHorizon: 0xffc796, skyBottom: 0xffe2c4, clouds: 0xffe4d0,
+    sun: 0xffd2a0, sunIntensity: 2.2, hemiSky: 0xffe0c0, hemiGround: 0x9a7456, hemiIntensity: 1.2,
+    fog: 0xf5caa0, fogDensity: 0.006,
   },
 };
 

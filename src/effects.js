@@ -77,7 +77,7 @@ export class Effects {
     });
     this.holeIdx = 0;
 
-    const brass = new THREE.MeshStandardMaterial({ color: 0xc9a045, metalness: 1, roughness: 0.3 });
+    const brass = new THREE.MeshBasicMaterial({ color: 0xf5c451 });
     const sg = new THREE.CylinderGeometry(0.005, 0.005, 0.022, 8);
     this.shells = Array.from({ length: 24 }, () => {
       const m = new THREE.Mesh(sg, brass);

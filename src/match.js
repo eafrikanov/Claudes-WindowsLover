@@ -1,5 +1,5 @@
 import { WEAPONS, WEAPON_INDEX } from './weapons.js';
-import { moveBody, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY } from './physics.js';
+import { moveBody, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
 
 export const RESPAWN_DELAY = 3.5;
 const PICKUP_RESPAWN = 20;
@@ -363,7 +363,7 @@ export class HostMatch {
     const moved = Math.hypot(b.pos.x - bx, b.pos.z - bz);
     if (len > 0.3 && moved < speed * dt * 0.3) {
       br.stuck += dt;
-      if (br.onGround && br.stuck > 0.4) v.y = 8;
+      if (br.onGround && br.stuck > 0.4) v.y = JUMP_SPEED;
     } else {
       br.stuck = Math.max(0, br.stuck - dt);
     }

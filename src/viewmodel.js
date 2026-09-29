@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { WEAPONS, buildWeaponModel, makeMuzzleFlash } from './weapons.js';
+import { toon } from './textures.js';
+import { addOutlines } from './outline.js';
 
 const GRIPS = {
   pistol: { right: [0, -0.035, 0.02], left: [-0.012, -0.055, 0.0], leftOnPump: false },
@@ -51,7 +53,7 @@ export class ViewModel {
     this.scene.add(this.camera);
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
-    this.sun.position.set(-1, 2, 1);
+    this.sun.position.set(0.6, 1.5, 2);
     this.flashLight = new THREE.PointLight(0xffb060, 0, 3, 2);
     this.scene.add(this.hemi, this.sun, this.flashLight);
     this.root = new THREE.Group();
@@ -59,9 +61,9 @@ export class ViewModel {
 
     const m = textures.weaponMaterials();
     const armMats = {
-      sleeve: new THREE.MeshStandardMaterial({ color: 0x3d4430, roughness: 0.95, normalMap: m.polymer.normalMap }),
-      glove: new THREE.MeshStandardMaterial({ color: 0x1c1c1e, roughness: 0.8, normalMap: m.polymer.normalMap }),
-      pad: new THREE.MeshStandardMaterial({ color: 0x55504a, roughness: 0.9 }),
+      sleeve: toon({ color: 0x5f8f3e }),
+      glove: toon({ color: 0x3a3440 }),
+      pad: toon({ color: 0xffb347 }),
     };
 
     this.guns = WEAPONS.map((def) => {
@@ -72,6 +74,7 @@ export class ViewModel {
       buildArm(holder, grip.right, new THREE.Vector3(0.1, -0.22, 0.4), armMats, false);
       const leftParent = grip.leftOnPump ? model.pump : holder;
       buildArm(leftParent, grip.left, new THREE.Vector3(-0.2, -0.2, 0.32), armMats, true);
+      addOutlines(holder, 0.0022);
       const flash = makeMuzzleFlash();
       flash.position.copy(model.muzzle);
       model.group.add(flash);
@@ -100,9 +103,9 @@ export class ViewModel {
   setLights(env) {
     this.hemi.color.set(env.hemiSky);
     this.hemi.groundColor.set(env.hemiGround);
-    this.hemi.intensity = env.hemiIntensity * 1.1;
+    this.hemi.intensity = env.hemiIntensity;
     this.sun.color.set(env.sun);
-    this.sun.intensity = env.sunIntensity * 0.6;
+    this.sun.intensity = env.sunIntensity * 0.9;
   }
 
   resize(aspect) {

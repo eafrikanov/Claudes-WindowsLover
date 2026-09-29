@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildWeaponModel } from './weapons.js';
+import { toon } from './textures.js';
+import { addOutlines } from './outline.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const HAND_POINTS = {
@@ -53,14 +55,15 @@ export class Avatar {
   constructor(weaponMats, name, color, friendly) {
     this.weaponMats = weaponMats;
     this.group = new THREE.Group();
-    const skin = new THREE.MeshStandardMaterial({ color: 0xc9946f, roughness: 0.7 });
+    const skin = toon({ color: 0xffc79a });
     this.mats = {
       skin,
-      uniform: new THREE.MeshStandardMaterial({ color: 0x4a4f3c, roughness: 0.95, normalMap: weaponMats.polymer.normalMap }),
-      vest: new THREE.MeshStandardMaterial({ color, roughness: 0.8, normalMap: weaponMats.polymer.normalMap }),
-      gear: new THREE.MeshStandardMaterial({ color: 0x26282b, roughness: 0.75 }),
-      boot: new THREE.MeshStandardMaterial({ color: 0x2b241d, roughness: 0.85 }),
-      visor: new THREE.MeshStandardMaterial({ color: 0x101820, metalness: 0.6, roughness: 0.15 }),
+      uniform: toon({ color: 0x5f8f3e }),
+      vest: toon({ color }),
+      gear: toon({ color: 0x3a3440 }),
+      boot: toon({ color: 0x4a3426 }),
+      eyeWhite: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+      pupil: new THREE.MeshBasicMaterial({ color: 0x1e1924 }),
     };
     const m = this.mats;
 
@@ -131,14 +134,24 @@ export class Avatar {
     rim.rotation.x = Math.PI / 2;
     rim.position.y = 0.12;
     this.head.add(rim);
-    const goggles = rbox(0.2, 0.055, 0.06, 0.02, m.visor);
-    goggles.position.set(0, 0.12, -0.1);
-    this.head.add(goggles);
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 12, 10), m.eyeWhite);
+      eye.scale.set(1, 1.25, 0.5);
+      eye.position.set(side * 0.045, 0.1, -0.108);
+      this.head.add(eye);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 8), m.pupil);
+      pupil.scale.set(1, 1.2, 0.5);
+      pupil.position.set(side * 0.045, 0.098, -0.122);
+      this.head.add(pupil);
+    }
+    this.head.scale.setScalar(1.25);
 
     this.armGroup = new THREE.Group();
     u.add(this.armGroup);
     this.gunMount = new THREE.Group();
     u.add(this.gunMount);
+
+    addOutlines(this.group, 0.014);
 
     this.tag = nameSprite(name, friendly ? '#7fd6ff' : '#ffffff');
     this.tag.position.y = 2.1;
@@ -183,6 +196,8 @@ export class Avatar {
       pad.position.copy(shoulder).add(new THREE.Vector3(side * 0.02, 0.02, 0));
       this.armGroup.add(pad);
     }
+    addOutlines(this.gunMount, 0.006);
+    addOutlines(this.armGroup, 0.012);
   }
 
   muzzleWorld(out) {

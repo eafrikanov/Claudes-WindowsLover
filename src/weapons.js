@@ -26,7 +26,7 @@ export const WEAPONS = [
   {
     id: 'sniper', name: 'Сокол', kind: 'Снайперская винтовка', key: '4',
     damage: 95, head: 2.5, fireRate: 1.25, auto: false, mag: 5, reload: 2.7, pellets: 1,
-    spread: 0.06, moveSpread: 0.1, adsSpread: 0.0005, recoil: 0.09, kick: 0.08, range: 400, adsFov: 16,
+    spread: 0.03, moveSpread: 0.1, adsSpread: 0.0005, recoil: 0.09, kick: 0.08, range: 400, adsFov: 16,
     scope: true,
     sound: { freq: 700, body: 45, decay: 0.5, gain: 0.9 },
     hip: [0.16, -0.2, -0.38], ads: [0, 0, -0.2],

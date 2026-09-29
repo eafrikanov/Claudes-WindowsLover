@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { Sky } from 'three/addons/objects/Sky.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { TextureLibrary, setAnisotropy } from './textures.js';
+import { TextureLibrary, setAnisotropy, toon, rng } from './textures.js';
 import { buildMap } from './map.js';
 import { ViewModel } from './viewmodel.js';
 import { Avatar } from './avatar.js';
 import { Effects } from './effects.js';
 import { WEAPONS } from './weapons.js';
-import { moveBody, raycastWorld, rayPlayer, blocked, PLAYER_RADIUS, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY } from './physics.js';
+import { moveBody, raycastWorld, rayPlayer, blocked, PLAYER_RADIUS, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
 import { Hud, esc } from './hud.js';
+import { addOutlines } from './outline.js';
 import { RESPAWN_DELAY } from './match.js';
 
 export const QUALITY = {
@@ -18,7 +18,6 @@ export const QUALITY = {
 };
 
 export const TEAM_COLORS = ['#3d82e0', '#e0493d'];
-const JUMP_SPEED = 8;
 const STATE_RATE = 1 / 20;
 const INTERP_DELAY = 0.1;
 
@@ -36,12 +35,12 @@ function randomCone(dir, spread, out) {
 
 function medkit() {
   const g = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f0, roughness: 0.45 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xd01818, emissive: 0x900000, emissiveIntensity: 0.8, roughness: 0.4 });
+  const white = toon({ color: 0xf7f7f2 });
+  const red = toon({ color: 0xff2a2a, emissive: 0x900000, emissiveIntensity: 0.6 });
   const body = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.3, 0.34, 3, 0.05), white);
   body.castShadow = true;
   g.add(body);
-  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.015, 8, 16, Math.PI), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.015, 8, 16, Math.PI), toon({ color: 0x333333 }));
   handle.position.y = 0.15;
   g.add(handle);
   for (const [w, d] of [[0.26, 0.08], [0.08, 0.26]]) {
@@ -57,9 +56,62 @@ function medkit() {
   ring.rotation.x = -Math.PI / 2;
   const root = new THREE.Group();
   root.add(g, ring);
+  addOutlines(g, 0.012);
   root.userData.box = g;
   root.userData.ring = ring;
   return root;
+}
+
+// Небо: градиент от горизонта к зениту, солнце-диск и пухлые облака.
+function cartoonSky(env, sunDir) {
+  const group = new THREE.Group();
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      top: { value: new THREE.Color(env.skyTop) },
+      horizon: { value: new THREE.Color(env.skyHorizon) },
+      bottom: { value: new THREE.Color(env.skyBottom) },
+      sunDir: { value: sunDir.clone() },
+    },
+    vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunDir;
+      varying vec3 vDir;
+      void main() {
+        float h = vDir.y;
+        vec3 c = h > 0.0 ? mix(horizon, top, pow(smoothstep(0.0, 0.7, h), 0.8)) : mix(horizon, bottom, smoothstep(0.0, -0.2, h));
+        float s = dot(normalize(vDir), normalize(sunDir));
+        c = mix(c, vec3(1.0, 0.98, 0.9), smoothstep(0.9965, 0.998, s));
+        c += vec3(1.0, 0.9, 0.7) * pow(max(s, 0.0), 40.0) * 0.25;
+        gl_FragColor = vec4(c, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16), mat);
+  dome.renderOrder = -1;
+  group.add(dome);
+  const cloudMat = toon({ color: env.clouds, emissive: env.clouds, emissiveIntensity: 0.35, fog: false });
+  const r = rng(7);
+  const puff = new THREE.SphereGeometry(1, 14, 10);
+  for (let i = 0; i < 14; i++) {
+    const cloud = new THREE.Group();
+    const n = 3 + Math.floor(r() * 4);
+    for (let k = 0; k < n; k++) {
+      const p = new THREE.Mesh(puff, cloudMat);
+      const s = 6 + r() * 6;
+      p.scale.set(s * 1.3, s * 0.8, s);
+      p.position.set((k - n / 2) * 8 + r() * 4, r() * 3, r() * 5);
+      cloud.add(p);
+    }
+    const a = (i / 14) * Math.PI * 2 + r() * 0.3;
+    const d = 180 + r() * 90;
+    cloud.position.set(Math.cos(a) * d, 55 + r() * 45, Math.sin(a) * d);
+    cloud.lookAt(0, cloud.position.y, 0);
+    group.add(cloud);
+  }
+  return group;
 }
 
 export class Game {
@@ -69,11 +121,9 @@ export class Game {
     this.prefs = { ...prefs };
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.autoClear = false;
     setAnisotropy(Math.min(8, this.renderer.capabilities.getMaxAnisotropy()));
-    this.pmrem = new THREE.PMREMGenerator(this.renderer);
     this.camera = new THREE.PerspectiveCamera(prefs.fov, 1, 0.05, 500);
     this.camera.rotation.order = 'YXZ';
     this.hud = new Hud();
@@ -196,23 +246,8 @@ export class Game {
     const env = map.env;
     scene.add(map.group);
 
-    const sky = new Sky();
-    sky.scale.setScalar(450);
-    const u = sky.material.uniforms;
-    u.turbidity.value = env.turbidity;
-    u.rayleigh.value = env.rayleigh;
-    u.mieCoefficient.value = 0.005;
-    u.mieDirectionalG.value = 0.8;
     const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - env.elevation), THREE.MathUtils.degToRad(env.azimuth));
-    u.sunPosition.value.copy(sunDir);
-    const skyScene = new THREE.Scene();
-    skyScene.add(sky);
-    this.renderer.toneMappingExposure = env.exposure;
-    this.envTarget = this.pmrem.fromScene(skyScene, 0.02);
-    skyScene.remove(sky);
-    scene.add(sky);
-    scene.environment = this.envTarget.texture;
-    scene.environmentIntensity = env.envIntensity;
+    scene.add(cartoonSky(env, sunDir));
     scene.fog = new THREE.FogExp2(env.fog, env.fogDensity);
 
     const hemi = new THREE.HemisphereLight(env.hemiSky, env.hemiGround, env.hemiIntensity);
@@ -241,8 +276,6 @@ export class Game {
     this.effects = new Effects(scene);
     this.vm = new ViewModel(this.textures);
     this.vm.setLights(env);
-    this.vm.scene.environment = this.envTarget.texture;
-    this.vm.scene.environmentIntensity = env.envIntensity * 1.3;
     this.vm.resize(this.camera.aspect);
 
     this.scene = scene;
@@ -259,7 +292,6 @@ export class Game {
     this.scene.traverse((o) => {
       if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
     });
-    this.envTarget?.dispose();
     this.scene = null;
   }
 
@@ -281,7 +313,7 @@ export class Game {
       id: localId, team: self?.team ?? 0, pos: new THREE.Vector3(0, 0, 0), vel: new THREE.Vector3(),
       yaw: 0, pitch: 0, punch: 0, onGround: false, height: STAND_HEIGHT, crouching: false,
       alive: false, hp: 100, weapon: 1, ammo: WEAPONS.map((w) => w.mag), nextFire: 0, reloadUntil: 0, reloadFor: -1,
-      bloom: 0, stepT: 0, stateT: 0, deathT: 0, killer: null, lastPick: 0, waiting: true,
+      stepT: 0, stateT: 0, deathT: 0, killer: null, lastPick: 0, waiting: true,
     };
     this.prevWeapon = 0;
     this.roster.clear();
@@ -584,9 +616,9 @@ export class Game {
     const cos = Math.cos(me.yaw);
     const wx = -sin * fz + cos * fx;
     const wz = -cos * fz - sin * fx;
-    let speed = wantCrouch ? 2.6 : sprint ? 7.2 : 5;
-    if (aiming) speed *= def.scope ? 0.5 : 0.7;
-    const accel = me.onGround ? 12 : 2.5;
+    let speed = wantCrouch ? 3 : sprint ? 8.5 : 6.2;
+    if (aiming) speed *= 0.75;
+    const accel = me.onGround ? 25 : 10;
     me.vel.x += (wx * speed - me.vel.x) * Math.min(1, dt * accel);
     me.vel.z += (wz * speed - me.vel.z) * Math.min(1, dt * accel);
     if (input.has('Space') && me.onGround) {
@@ -630,9 +662,8 @@ export class Game {
         else { this.sound.empty(); me.nextFire = now + 0.25; this.startReload(); }
       }
     }
-    me.bloom = Math.max(0, me.bloom - dt * 0.06);
 
-    const spread = this.currentSpread(def, aiming, hs);
+    const spread = this.currentSpread(def, aiming);
     this.hud.crosshair(spread, !(aiming && this.vm.aim > 0.5));
 
     me.stateT += dt;
@@ -657,13 +688,9 @@ export class Game {
     this.hud.pickupHint(near && me.hp >= 100);
   }
 
-  currentSpread(def, aiming, speed) {
-    const me = this.me;
-    let s = def.spread + def.moveSpread * Math.min(1, speed / 5) + me.bloom;
-    if (!me.onGround) s += def.moveSpread * 1.5;
-    if (me.crouching) s *= 0.75;
-    if (aiming) s = def.adsSpread !== undefined && this.vm.aim > 0.9 ? def.adsSpread + me.bloom * 0.2 : s * 0.4;
-    return s;
+  currentSpread(def, aiming) {
+    if (aiming) return def.adsSpread !== undefined && this.vm.aim > 0.9 ? def.adsSpread : def.spread * 0.4;
+    return def.spread;
   }
 
   shoot(def) {
@@ -672,7 +699,7 @@ export class Game {
     me.ammo[me.weapon]--;
     me.nextFire = now + def.fireRate;
     const aiming = this.aimHeld;
-    const spread = this.currentSpread(def, aiming, Math.hypot(me.vel.x, me.vel.z));
+    const spread = this.currentSpread(def, aiming);
     const cam = this.camera;
     const origin = cam.getWorldPosition(new THREE.Vector3());
     const aimDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(me.pitch, me.yaw, 0, 'YXZ'));
@@ -731,10 +758,7 @@ export class Game {
     if (def.id !== 'shotgun') this.effects.shell(muzzle.clone().addScaledVector(right, 0.05).addScaledVector(up, 0.02), right.clone(), up.clone());
 
     const rk = def.recoil * (aiming ? 0.6 : 1) * (me.crouching ? 0.8 : 1);
-    me.pitch += rk * (0.55 + Math.random() * 0.3);
-    me.yaw += (Math.random() - 0.5) * rk * 0.5;
     me.punch += rk * 0.6;
-    me.bloom = Math.min(0.06, me.bloom + (def.auto ? 0.004 : 0.012));
     this.hud.weapon(me.weapon, me.ammo[me.weapon]);
     if (me.ammo[me.weapon] === 0) setTimeout(() => { if (this.me === me && me.ammo[me.weapon] === 0) this.startReload(); }, 250);
   }
