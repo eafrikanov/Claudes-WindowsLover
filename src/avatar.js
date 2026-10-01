@@ -3,6 +3,8 @@ import { buildWeaponModel } from './weapons.js';
 import { toon } from './textures.js';
 import { addOutlines } from './outline.js';
 import { makeSkin, partGeometry, outlineGeometry, HATS, PARTS, hashName } from './skins.js';
+import { Track } from './interp.js';
+import { GRAVITY } from './physics.js';
 
 // Кубический персонаж в стиле Pixel Gun: голова-куб, коробка-торс, руки и ноги из двух коробок.
 // Рост 1.8: ноги 0–0.75, торс 0.75–1.35, голова 1.36–1.78. Модель смотрит в −Z.
@@ -191,7 +193,7 @@ export class Avatar {
     this.gunPos = new THREE.Vector3();
     this.rightHand = new THREE.Vector3();
     this.leftHand = new THREE.Vector3();
-    this.snaps = [];
+    this.track = new Track({ gravity: GRAVITY });
     this.phase = 0;
     this.dead = false;
     this.deathT = 0;
@@ -237,14 +239,14 @@ export class Avatar {
     return this.gunMount.localToWorld(out.copy(this.muzzleLocal));
   }
 
-  pushState(s, t) {
-    this.snaps.push({ t, x: s.p[0], y: s.p[1], z: s.p[2], yaw: s.yaw, pitch: s.pitch, crouch: s.c ? 1 : 0 });
-    if (this.snaps.length > 30) this.snaps.shift();
+  // s — снимок для Track (время отправителя t в секундах), recv — локальное время прихода
+  pushState(s, recv) {
+    this.track.push(s, recv);
     this.setWeapon(s.w);
   }
 
   teleport(x, y, z) {
-    this.snaps.length = 0;
+    this.track.reset();
     this.group.position.set(x, y, z);
   }
 
@@ -261,6 +263,7 @@ export class Avatar {
     this.deathT = 0;
     this.hitT = 0;
     this.setEmissive(0);
+    this.track.stop();
   }
 
   revive() {
@@ -272,23 +275,14 @@ export class Avatar {
     this.group.visible = true;
   }
 
-  update(dt, renderTime) {
+  update(dt, now) {
     const prev = this.group.position.clone();
-    const sn = this.snaps;
-    if (sn.length) {
-      let a = sn[0];
-      let b = sn[sn.length - 1];
-      for (let i = sn.length - 1; i > 0; i--) {
-        if (sn[i - 1].t <= renderTime) { a = sn[i - 1]; b = sn[i]; break; }
-      }
-      const span = b.t - a.t;
-      const k = span > 0 ? THREE.MathUtils.clamp((renderTime - a.t) / span, 0, 1) : 1;
-      this.group.position.set(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k);
-      let dyaw = b.yaw - a.yaw;
-      dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
-      this.yaw = a.yaw + dyaw * k;
-      this.pitch = a.pitch + (b.pitch - a.pitch) * k;
-      this.crouch += ((b.crouch) - this.crouch) * Math.min(1, dt * 12);
+    const s = this.track.update(now);
+    if (s) {
+      this.group.position.set(s.x, s.y, s.z);
+      this.yaw = s.yaw;
+      this.pitch = s.pitch;
+      this.crouch += (s.c - this.crouch) * Math.min(1, dt * 12);
     }
     if (dt > 0) this.velocity.subVectors(this.group.position, prev).divideScalar(dt);
     this.animate(dt);

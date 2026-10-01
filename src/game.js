@@ -10,7 +10,8 @@ import { Projectiles } from './projectiles.js';
 import { moveBody, raycastWorld, rayPlayer, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
 import { Hud, esc } from './hud.js';
 import { addOutlines } from './outline.js';
-import { RESPAWN_DELAY } from './match.js';
+import { RESPAWN_DELAY, STATE_RATE } from './match.js';
+import { MC, MC_QUALITY, McPost, mcEnv, mcSky, fitShadow, setupRenderer } from './style-mc.js';
 
 export const QUALITY = {
   low: { label: 'Низкое', pixel: 0.75, shadows: 0, tex: 256 },
@@ -18,9 +19,13 @@ export const QUALITY = {
   high: { label: 'Высокое', pixel: 2, shadows: 4096, tex: 1024 },
 };
 
+export const DRAW_DISTANCE = {
+  near: { label: 'Ближняя', fog: 1.6, far: 480 },
+  mid: { label: 'Средняя', fog: 1, far: 500 },
+  far: { label: 'Дальняя', fog: 0.55, far: 900 },
+};
+
 export const TEAM_COLORS = ['#3d82e0', '#e0493d'];
-const STATE_RATE = 1 / 20;
-const INTERP_DELAY = 0.1;
 const GRENADES = 2;
 const GRENADE = WEAPONS[WEAPON_INDEX.grenade];
 
@@ -126,6 +131,7 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.autoClear = false;
+    if (MC) setupRenderer(this.renderer);
     setAnisotropy(Math.min(8, this.renderer.capabilities.getMaxAnisotropy()));
     this.camera = new THREE.PerspectiveCamera(prefs.fov, 1, 0.05, 500);
     this.camera.rotation.order = 'YXZ';
@@ -137,15 +143,21 @@ export class Game {
     this.look = { dx: 0, dy: 0, lastDX: 0, lastDY: 0 };
     this.fireHeld = false;
     this.aimHeld = false;
+    this.crouchToggled = false;
+    this.sprintToggled = false;
     this.tabHeld = false;
     this.noLock = new URLSearchParams(location.search).has('nolock');
     this.send = () => {};
+    this.stateRate = STATE_RATE;
     this.onPause = () => {};
     this.onTick = null;
     this.avatars = new Map();
     this.roster = new Map();
     this.orbit = 0;
     this.last = performance.now();
+    this.fpsN = 0;
+    this.fpsT = 0;
+    this.hud.showFps(this.prefs.showFps);
     this.bindInput();
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -158,21 +170,31 @@ export class Game {
   }
 
   applyPrefs(prefs) {
-    const reload = prefs.quality !== this.prefs.quality;
+    const reload = !!this.scene && prefs.quality !== this.loadedQuality;
     this.prefs = { ...prefs };
-    this.sound.setVolume(prefs.volume);
+    this.sound.setVolume(prefs.volume, prefs.fxVolume, prefs.uiVolume);
+    this.hud.showFps(prefs.showFps);
+    this.applyDrawDistance();
     this.resize();
     return reload;
+  }
+
+  applyDrawDistance() {
+    const d = DRAW_DISTANCE[this.prefs.drawDist] || DRAW_DISTANCE.mid;
+    if (this.scene?.fog) this.scene.fog.density = this.baseFog * d.fog;
+    this.camera.far = d.far;
+    this.camera.updateProjectionMatrix();
   }
 
   resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio * this.quality.pixel));
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio * this.quality.pixel) * this.prefs.renderScale / 100);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.vm?.resize(w / h);
+    this.post?.setSize(w, h);
   }
 
   get locked() {
@@ -191,6 +213,8 @@ export class Game {
       if (!this.running || this.paused || e.target.tagName === 'INPUT') return;
       if (block.includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
+      if (!e.repeat && (e.code === 'ControlLeft' || e.code === 'KeyC') && this.prefs.crouchMode === 'toggle') this.crouchToggled = !this.crouchToggled;
+      if (!e.repeat && e.code === 'ShiftLeft') this.sprintKey();
       if (e.code === 'Tab') this.tabHeld = true;
       if (e.code === 'KeyR') this.startReload();
       if (e.code === 'KeyQ') this.selectWeapon(this.prevWeapon ?? 0);
@@ -202,17 +226,17 @@ export class Game {
       this.keys.delete(e.code);
       if (e.code === 'Tab') this.tabHeld = false;
     });
-    window.addEventListener('blur', () => { this.keys.clear(); this.fireHeld = false; this.aimHeld = false; });
+    window.addEventListener('blur', () => { this.keys.clear(); this.fireHeld = false; this.aimHeld = false; this.resetToggles(); });
     this.canvas.addEventListener('mousedown', (e) => {
       if (!this.running || this.paused) return;
       this.sound.unlock();
       if (!this.locked) { this.requestLock(); return; }
       if (e.button === 0) { this.fireHeld = true; this.triggerFresh = true; }
-      if (e.button === 2) this.aimHeld = true;
+      if (e.button === 2) this.aimHeld = this.prefs.aimMode === 'toggle' ? !this.aimHeld : true;
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.fireHeld = false;
-      if (e.button === 2) this.aimHeld = false;
+      if (e.button === 2 && this.prefs.aimMode !== 'toggle') this.aimHeld = false;
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('mousemove', (e) => {
@@ -230,11 +254,25 @@ export class Game {
     });
   }
 
+  // Присед со щелчка снимается нажатием бега, если над головой есть место.
+  sprintKey() {
+    const me = this.me;
+    if (this.crouchToggled && me && !blocked(this.map.colliders, me.pos.x, me.pos.y + 0.01, me.pos.z, PLAYER_RADIUS, STAND_HEIGHT)) this.crouchToggled = false;
+    if (this.prefs.sprintMode === 'toggle') this.sprintToggled = !this.sprintToggled;
+  }
+
+  resetToggles() {
+    if (this.prefs.aimMode === 'toggle') this.aimHeld = false;
+    this.crouchToggled = false;
+    this.sprintToggled = false;
+  }
+
   setPaused(v) {
     this.paused = v;
     this.keys.clear();
     this.fireHeld = false;
     this.aimHeld = false;
+    this.resetToggles();
     if (!v) this.requestLock();
     else if (document.pointerLockElement) document.exitPointerLock();
     this.onPause(v);
@@ -247,20 +285,25 @@ export class Game {
     if (!this.textures || this.textures.size !== q.tex) this.textures = new TextureLibrary(q.tex);
     const scene = new THREE.Scene();
     const map = buildMap(mapId, this.textures);
-    const env = map.env;
+    const env = MC ? mcEnv(map.env) : map.env;
     scene.add(map.group);
 
     const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - env.elevation), THREE.MathUtils.degToRad(env.azimuth));
-    scene.add(cartoonSky(env, sunDir));
+    scene.add(MC ? mcSky(env, sunDir) : cartoonSky(env, sunDir));
     scene.fog = new THREE.FogExp2(env.fog, env.fogDensity);
+    this.baseFog = env.fogDensity;
 
     const hemi = new THREE.HemisphereLight(env.hemiSky, env.hemiGround, env.hemiIntensity);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight(env.sun, env.sunIntensity);
     sun.position.copy(sunDir).multiplyScalar(70);
     scene.add(sun, sun.target);
-    this.renderer.shadowMap.enabled = q.shadows > 0;
-    if (q.shadows) {
+    const mq = MC && (MC_QUALITY[this.prefs.quality] || MC_QUALITY.medium);
+    const bounds = mq && new THREE.Box3().setFromObject(map.group).expandByVector(new THREE.Vector3(0, 2, 0));
+    this.renderer.shadowMap.enabled = (mq || q).shadows > 0;
+    if (mq) {
+      fitShadow(sun, bounds, mq.shadows, env);
+    } else if (q.shadows) {
       sun.castShadow = true;
       sun.shadow.mapSize.set(q.shadows, q.shadows);
       const s = map.half + 6;
@@ -283,16 +326,23 @@ export class Game {
     this.vm = new ViewModel(this.textures);
     this.vm.setLights(env);
     this.vm.resize(this.camera.aspect);
+    if (MC) {
+      this.post = new McPost(this.renderer, scene, this.camera, this.vm, env, this.prefs.quality, bounds);
+      this.post.setSize(window.innerWidth, window.innerHeight);
+    }
 
     this.scene = scene;
     this.map = map;
     this.mapId = mapId;
     this.loadedQuality = this.prefs.quality;
+    this.applyDrawDistance();
     this.renderer.compile(scene, this.camera);
   }
 
   disposeScene() {
     if (!this.scene) return;
+    this.post?.dispose();
+    this.post = null;
     for (const av of this.avatars.values()) av.dispose();
     this.avatars.clear();
     this.scene.traverse((o) => {
@@ -317,12 +367,13 @@ export class Game {
     const self = roster.find((p) => p.id === localId);
     this.me = {
       id: localId, team: self?.team ?? 0, pos: new THREE.Vector3(0, 0, 0), vel: new THREE.Vector3(),
-      yaw: 0, pitch: 0, punch: 0, onGround: false, height: STAND_HEIGHT, crouching: false,
+      yaw: 0, pitch: 0, punch: 0, onGround: false, height: STAND_HEIGHT, crouching: false, sprinting: false,
       alive: false, hp: 100, weapon: 1, ammo: WEAPONS.map((w) => w.mag), nextFire: 0, reloadUntil: 0, reloadFor: -1,
       stepT: 0, stateT: 0, deathT: 0, killer: null, lastPick: 0, waiting: true,
       grenades: GRENADES, nextThrow: 0, spin: 0, shake: 0, pidN: 0,
     };
     this.prevWeapon = 0;
+    this.resetToggles();
     this.roster.clear();
     this.syncRoster(snapshot?.roster || roster.map((p) => ({ ...p, kills: 0, deaths: 0, alive: false, hp: 100 })));
     if (snapshot) {
@@ -425,6 +476,7 @@ export class Game {
     me.reloadUntil = 0;
     me.reloadFor = -1;
     me.nextFire = Math.max(me.nextFire, this.now + 0.3);
+    if (this.prefs.aimMode === 'toggle') this.aimHeld = false;
     this.vm.switchTo(i);
     this.hud.weapon(i, me.ammo[i]);
     this.hud.reloadProgress(-1);
@@ -453,10 +505,10 @@ export class Game {
     const now = this.now;
     switch (msg.t) {
       case 'st':
-        for (const [id, x, y, z, yaw, pitch, w, c] of msg.s) {
+        for (const [id, ts, x, y, z, vx, vy, vz, yaw, pitch, w, c] of msg.s) {
           if (id === this.localId) continue;
           const av = this.avatars.get(id);
-          if (av && !av.dead) av.pushState({ p: [x, y, z], yaw, pitch, w: WEAPONS[w]?.id || 'rifle', c }, now);
+          if (av && !av.dead) av.pushState({ t: ts / 1000, x, y, z, vx, vy, vz, yaw, pitch, c, w: WEAPONS[w]?.id || 'rifle' }, now);
         }
         break;
       case 'shot': {
@@ -533,6 +585,8 @@ export class Game {
           me.hp = 0;
           me.deathT = 0;
           me.killer = msg.k;
+          me.sprinting = false;
+          this.resetToggles();
           this.hud.health(0);
           this.hud.death(true, `Вас убил <b style="color:${k ? this.displayColor(k) : '#fff'}">${esc(k?.name || '???')}</b> · ${esc(WEAPONS[msg.w]?.name || '')}${msg.h ? ' · в голову' : ''}`, RESPAWN_DELAY);
           this.hud.scope(false);
@@ -559,6 +613,7 @@ export class Game {
           me.alive = true;
           me.waiting = false;
           me.hp = 100;
+          this.resetToggles();
           me.ammo = WEAPONS.map((w) => w.mag);
           me.grenades = GRENADES;
           me.spin = 0;
@@ -607,7 +662,7 @@ export class Game {
     const def = WEAPONS[me.weapon];
     const aiming = this.aimHeld && me.alive && me.reloadUntil <= now && !def.noAds;
     const zoom = aiming ? def.adsFov / this.prefs.fov : 1;
-    const sens = this.prefs.sensitivity * 0.0029 * (aiming ? Math.max(0.25, zoom) : 1);
+    const sens = this.prefs.sensitivity * 0.0029 * (aiming ? Math.max(0.25, zoom) * this.prefs.adsSens : 1);
     me.yaw -= this.look.dx * sens;
     me.pitch -= this.look.dy * sens * (this.prefs.invertY ? -1 : 1);
     me.pitch = THREE.MathUtils.clamp(me.pitch, -1.5, 1.5);
@@ -649,8 +704,18 @@ export class Game {
     if (input.has('KeyS')) fz -= 1;
     if (input.has('KeyD')) fx += 1;
     if (input.has('KeyA')) fx -= 1;
-    const wantCrouch = input.has('ControlLeft') || input.has('KeyC');
-    const sprint = input.has('ShiftLeft') && fz > 0 && !aiming && !wantCrouch && !this.fireHeld;
+    const wantCrouch = this.prefs.crouchMode === 'toggle' ? this.crouchToggled : input.has('ControlLeft') || input.has('KeyC');
+    const cols = this.map.colliders;
+    const targetH = wantCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
+    if (targetH > me.height && blocked(cols, me.pos.x, me.pos.y + 0.01, me.pos.z, PLAYER_RADIUS, targetH)) {
+      me.crouching = true;
+    } else {
+      me.height += (targetH - me.height) * Math.min(1, dt * 12);
+      me.crouching = wantCrouch;
+    }
+    const noSprint = !(fx || fz) || aiming || me.crouching || this.fireHeld;
+    if (noSprint) this.sprintToggled = false;
+    me.sprinting = !noSprint && (this.prefs.sprintMode === 'toggle' ? this.sprintToggled : input.has('ShiftLeft'));
     const len = Math.hypot(fx, fz) || 1;
     fx /= len;
     fz /= len;
@@ -658,7 +723,7 @@ export class Game {
     const cos = Math.cos(me.yaw);
     const wx = -sin * fz + cos * fx;
     const wz = -cos * fz - sin * fx;
-    let speed = wantCrouch ? 3.6 : sprint ? 10 : 7.6;
+    let speed = me.crouching ? 2.2 : me.sprinting ? 7.6 : 5;
     if (aiming) speed *= 0.75;
     if (def.moveMul) speed *= def.spinup ? (me.spin > 0 ? def.moveMul : 1) : def.moveMul;
     const accel = me.onGround ? 25 : 12;
@@ -669,29 +734,20 @@ export class Game {
       me.onGround = false;
     }
     me.vel.y -= GRAVITY * dt;
-
-    const cols = this.map.colliders;
-    const targetH = wantCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
-    if (targetH > me.height && blocked(cols, me.pos.x, me.pos.y + 0.01, me.pos.z, PLAYER_RADIUS, targetH)) {
-      me.crouching = true;
-    } else {
-      me.height += (targetH - me.height) * Math.min(1, dt * 12);
-      me.crouching = wantCrouch;
-    }
     me.onGround = moveBody(cols, me.pos, me.vel, dt, PLAYER_RADIUS, me.height, me.onGround);
     if (me.pos.y < -30) me.pos.set(0, 5, 0);
 
     const hs = Math.hypot(me.vel.x, me.vel.z);
     if (me.onGround && hs > 1.5 && !me.crouching) {
       me.stepT -= dt * hs;
-      if (me.stepT <= 0) { me.stepT = 2.3; this.sound.step(sprint ? 0.16 : 0.1); }
+      if (me.stepT <= 0) { me.stepT = 2; this.sound.step(me.sprinting ? 0.16 : 0.1); }
     }
 
     me.punch += (0 - me.punch) * Math.min(1, dt * 10);
     cam.position.set(me.pos.x, me.pos.y + me.height - 0.16, me.pos.z);
     cam.rotation.set(me.pitch + me.punch, me.yaw, 0);
     if (me.shake > 0) {
-      const k = me.shake * me.shake;
+      const k = this.prefs.screenShake ? me.shake * me.shake : 0;
       cam.rotation.x += (Math.random() - 0.5) * k * 0.09;
       cam.rotation.y += (Math.random() - 0.5) * k * 0.09;
       cam.rotation.z = (Math.random() - 0.5) * k * 0.06;
@@ -723,10 +779,14 @@ export class Game {
     this.hud.crosshair(spread, !(aiming && this.vm.aim > 0.5));
 
     me.stateT += dt;
-    if (me.stateT >= STATE_RATE) {
-      me.stateT = 0;
+    if (me.stateT >= this.stateRate) {
+      me.stateT = Math.min(me.stateT - this.stateRate, this.stateRate);
       const r2 = (v) => Math.round(v * 100) / 100;
-      this.send({ t: 'st', p: [r2(me.pos.x), r2(me.pos.y), r2(me.pos.z)], yaw: r2(me.yaw), pitch: r2(me.pitch), w: me.weapon, c: me.crouching ? 1 : 0 });
+      const r1 = (v) => Math.round(v * 10) / 10;
+      this.send({
+        t: 'st', ts: Math.round(now * 1000), p: [r2(me.pos.x), r2(me.pos.y), r2(me.pos.z)], v: [r1(me.vel.x), r1(me.vel.y), r1(me.vel.z)],
+        yaw: r2(me.yaw), pitch: r2(me.pitch), w: me.weapon, c: me.crouching ? 1 : 0,
+      });
     }
 
     let near = false;
@@ -745,8 +805,9 @@ export class Game {
   }
 
   currentSpread(def, aiming) {
-    if (aiming) return def.adsSpread !== undefined && this.vm.aim > 0.9 ? def.adsSpread : def.spread * 0.4;
-    return def.spread;
+    const k = this.me?.crouching ? 0.7 : 1;
+    if (aiming) return (def.adsSpread !== undefined && this.vm.aim > 0.9 ? def.adsSpread : def.spread * 0.4) * k;
+    return def.spread * k;
   }
 
   aimTarget(origin, aimDir, range = 300) {
@@ -973,21 +1034,32 @@ export class Game {
 
   loop(ts) {
     requestAnimationFrame(this.loop);
-    const dt = Math.min(0.05, (ts - this.last) / 1000);
+    const raw = (ts - this.last) / 1000;
+    const dt = Math.min(0.05, raw);
     this.last = ts;
     if (!this.scene) return;
+    if (this.running && this.prefs.showFps) {
+      this.fpsN++;
+      this.fpsT += raw;
+      if (this.fpsT >= 0.5) {
+        this.hud.fps(Math.round(this.fpsN / this.fpsT));
+        this.fpsN = 0;
+        this.fpsT = 0;
+      }
+    }
     if (this.running) {
       if (this.onTick) this.onTick(dt);
       this.updateLocal(dt);
       this.projectiles.update(dt, this.map.colliders, this.avatars);
-      const rt = this.now - INTERP_DELAY;
-      for (const av of this.avatars.values()) av.update(dt, rt);
+      const now = this.now;
+      for (const av of this.avatars.values()) av.update(dt, now);
       this.updatePickups(dt);
       const me = this.me;
       this.sound.listener = { x: me.pos.x, z: me.pos.z, yaw: me.yaw };
       this.vm.update(dt, {
         aiming: this.aimHeld && me.alive && me.reloadFor < 0 && !SLOT_WEAPONS[me.weapon].noAds,
-        sprinting: this.keys.has('ShiftLeft') && this.keys.has('KeyW') && !this.fireHeld,
+        sprinting: me.sprinting,
+        bob: this.prefs.viewBob,
         speed: Math.hypot(me.vel.x, me.vel.z),
         onGround: me.onGround,
         lookDX: this.look.lastDX,
@@ -1006,10 +1078,15 @@ export class Game {
       this.updatePickups(dt);
     }
     this.effects.update(dt);
+    this.renderFrame(this.running && this.me?.alive);
+  }
+
+  renderFrame(withVm) {
+    if (this.post) return this.post.render(withVm);
     const r = this.renderer;
     r.clear();
     r.render(this.scene, this.camera);
-    if (this.running && this.me?.alive) {
+    if (withVm) {
       r.clearDepth();
       r.render(this.vm.scene, this.vm.camera);
     }

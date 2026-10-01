@@ -113,7 +113,7 @@ html, body {
 .field > span { font-size: 13px; color: var(--muted); text-transform: uppercase; }
 .field b { color: var(--yellow); font-weight: 400; }
 
-input:not([type]), input[type=text], .code-input, #chat-input {
+input:not([type]), input[type=text], input[type=number], .code-input, #chat-input {
   background: var(--slot);
   border: 3px solid var(--ink);
   box-shadow: inset 0 4px 0 rgba(0,0,0,.35);
@@ -137,6 +137,11 @@ input[type=range]::-moz-range-thumb {
 }
 .check { display: flex; align-items: center; gap: 10px; font-size: 15px; }
 .check input { width: 22px; height: 22px; accent-color: var(--green-d); }
+.range-num { display: flex; align-items: center; gap: 12px; }
+.range-num input[type=range] { flex: 1; }
+.range-num input[type=number] { width: 88px; padding: 6px 8px; font-size: 15px; }
+.modes { display: grid; grid-template-columns: auto 1fr; gap: 10px 14px; align-items: center; }
+.modes > span { font-size: 13px; color: var(--muted); text-transform: uppercase; }
 
 .colors { display: flex; gap: 8px; flex-wrap: wrap; }
 .colors button {
@@ -233,6 +238,7 @@ input[type=range]::-moz-range-thumb {
   box-shadow: inset 0 4px 0 rgba(0,0,0,.35);
 }
 .section-title { font-size: 14px; text-transform: uppercase; color: var(--muted); margin: 8px 0 8px; }
+.section-title.group { margin: 6px 0 0; padding-bottom: 6px; font-size: 16px; color: #fff; text-shadow: var(--outline-s); border-bottom: 3px solid var(--ink); }
 .team-block { margin-bottom: 12px; }
 .team-block .team-name { font-size: 16px; text-transform: uppercase; margin-bottom: 7px; text-shadow: var(--outline-s); }
 .team-block.t0 .team-name { color: #8fc2ff; }
@@ -471,6 +477,12 @@ table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
 #death .title { font-size: 38px; text-shadow: var(--outline); transform: skewX(8deg); }
 #death-by { font-size: 18px; text-shadow: var(--outline-s); background: rgba(22,27,40,.85); border: 3px solid var(--ink); border-radius: 12px; padding: 6px 14px; }
 #death-timer { font-size: 15px; color: var(--yellow); text-shadow: var(--outline-s); }
+
+#fps:empty { display: none; }
+#fps {
+  position: absolute; left: 12px; top: 12px; padding: 3px 8px; border-radius: 8px;
+  background: rgba(22,27,40,.75); color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+}
 
 #scoreboard {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(600px, 92vw); display: none;

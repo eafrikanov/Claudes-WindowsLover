@@ -15,6 +15,7 @@ export class Hud {
       cross: $('crosshair'), hit: $('hitmarker'), scope: $('scope'), vignette: $('vignette'), dmg: $('dmg-indicators'),
       death: $('death'), deathBy: $('death-by'), deathTimer: $('death-timer'), board: $('scoreboard'), boardBody: $('scoreboard-body'),
       toast: $('toast'), reload: $('reload-bar'), reloadFill: $('reload-fill'), pickupHint: $('pickup-hint'), clickHint: $('click-hint'),
+      fps: $('fps'),
     };
     for (const el of document.querySelectorAll('[data-icon]')) el.innerHTML = ICONS[el.dataset.icon];
     this.el.wicon = $('weapon-icon');
@@ -121,6 +122,14 @@ export class Hud {
   grenades(n) {
     this.el.nades.textContent = n;
     this.el.nades.parentElement.classList.toggle('empty', n <= 0);
+  }
+
+  showFps(v) {
+    this.el.fps.classList.toggle('hidden', !v);
+  }
+
+  fps(n) {
+    this.el.fps.textContent = `${n} FPS`;
   }
 
   clickHint(v) {

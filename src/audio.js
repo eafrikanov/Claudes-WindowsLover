@@ -3,6 +3,8 @@ export class Sound {
   constructor() {
     this.ctx = null;
     this.volume = 0.7;
+    this.fxVolume = 1;
+    this.uiVolume = 1;
     this.listener = { x: 0, z: 0, yaw: 0 };
   }
 
@@ -15,6 +17,12 @@ export class Sound {
       this.master.gain.value = this.volume;
       const comp = this.ctx.createDynamicsCompressor();
       this.master.connect(comp).connect(this.ctx.destination);
+      this.fx = this.ctx.createGain();
+      this.fx.gain.value = this.fxVolume;
+      this.fx.connect(this.master);
+      this.ui = this.ctx.createGain();
+      this.ui.gain.value = this.uiVolume;
+      this.ui.connect(this.master);
       const len = this.ctx.sampleRate;
       this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noise.getChannelData(0);
@@ -23,9 +31,15 @@ export class Sound {
     if (this.ctx.state === 'suspended') this.ctx.resume();
   }
 
-  setVolume(v) {
+  // fx — звуки мира, ui — сигналы попаданий, убийств, аптечек и урона.
+  setVolume(v, fx = this.fxVolume, ui = this.uiVolume) {
     this.volume = v;
-    if (this.master) this.master.gain.value = v;
+    this.fxVolume = fx;
+    this.uiVolume = ui;
+    if (!this.master) return;
+    this.master.gain.value = v;
+    this.fx.gain.value = fx;
+    this.ui.gain.value = ui;
   }
 
   spatial(x, z) {
@@ -37,15 +51,15 @@ export class Sound {
     return { gain: 1 / (1 + dist * 0.07), pan: Math.max(-1, Math.min(1, -Math.sin(ang))) * Math.min(1, dist / 3) };
   }
 
-  out(gain, pan) {
+  out(gain, pan, bus = this.fx) {
     const g = this.ctx.createGain();
     g.gain.value = gain;
     if (this.ctx.createStereoPanner) {
       const p = this.ctx.createStereoPanner();
       p.pan.value = pan;
-      g.connect(p).connect(this.master);
+      g.connect(p).connect(bus);
     } else {
-      g.connect(this.master);
+      g.connect(bus);
     }
     return g;
   }
@@ -167,14 +181,14 @@ export class Sound {
 
   hit(head) {
     if (!this.ctx) return;
-    const d = this.out(0.35, 0);
+    const d = this.out(0.35, 0, this.ui);
     const t = this.ctx.currentTime;
     this.tone(d, t, { f0: head ? 1800 : 1200, f1: head ? 2400 : 1000, dur: 0.07, type: 'triangle', gain: 0.6 });
   }
 
   kill() {
     if (!this.ctx) return;
-    const d = this.out(0.35, 0);
+    const d = this.out(0.35, 0, this.ui);
     const t = this.ctx.currentTime;
     this.tone(d, t, { f0: 880, dur: 0.12, type: 'triangle' });
     this.tone(d, t + 0.1, { f0: 1320, dur: 0.2, type: 'triangle' });
@@ -182,7 +196,7 @@ export class Sound {
 
   hurt() {
     if (!this.ctx) return;
-    const d = this.out(0.6, 0);
+    const d = this.out(0.6, 0, this.ui);
     const t = this.ctx.currentTime;
     this.tone(d, t, { f0: 160, f1: 60, dur: 0.18, gain: 0.8 });
     this.burst(d, t, { dur: 0.1, freq: 400, gain: 0.5 });
@@ -190,7 +204,7 @@ export class Sound {
 
   pickup() {
     if (!this.ctx) return;
-    const d = this.out(0.3, 0);
+    const d = this.out(0.3, 0, this.ui);
     const t = this.ctx.currentTime;
     [660, 880, 1100].forEach((f, i) => this.tone(d, t + i * 0.07, { f0: f, dur: 0.15, type: 'triangle' }));
   }

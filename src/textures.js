@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MC, PIXEL_TILES, pixelMaterial, mcMaterial } from './style-mc.js';
 
 export function rng(seed) {
   let a = seed >>> 0;
@@ -29,6 +30,7 @@ export function toonGradient() {
 }
 
 export function toon(params) {
+  if (MC) return mcMaterial(params);
   return new THREE.MeshToonMaterial({ gradientMap: toonGradient(), ...params });
 }
 
@@ -360,12 +362,22 @@ export class TextureLibrary {
 
   get(name, variant = null) {
     const key = variant ? `${name}:${variant.join(',')}` : name;
+    if (!this.cache.has(key) && MC) this.cache.set(key, pixelMaterial(name, variant, maxAniso));
     if (!this.cache.has(key)) {
       const seed = [...key].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) >>> 0;
       const c = canvas(this.size, (ctx, s, r) => generators[name](ctx, s, r, variant), seed);
       this.cache.set(key, toon({ map: tex(c) }));
     }
     return this.cache.get(key);
+  }
+
+  get pixel() {
+    return MC;
+  }
+
+  // Размер повтора текстуры в метрах для UV в мировых координатах (0 — разметка задаётся картой).
+  tile(name) {
+    return MC ? PIXEL_TILES[name] || 0 : 0;
   }
 
   weaponMaterials() {

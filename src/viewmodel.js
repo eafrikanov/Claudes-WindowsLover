@@ -183,15 +183,16 @@ export class ViewModel {
     r.vrx += (-r.rx * 260 - r.vrx * 20) * dt;
     r.rx += r.vrx * dt;
 
+    const calm = s.bob === false ? 0 : 1;
     const speed = s.onGround ? Math.min(1, s.speed / 6) : 0;
     this.bobT += dt * (6 + speed * 5) * (0.2 + speed);
-    const bobAmt = speed * (1 - this.aim * 0.85) * (1 + this.sprint * 0.8);
+    const bobAmt = speed * (1 - this.aim * 0.85) * (1 + this.sprint * 0.8) * calm;
     const bobX = Math.sin(this.bobT) * 0.012 * bobAmt;
     const bobY = -Math.abs(Math.cos(this.bobT)) * 0.012 * bobAmt;
-    const breath = Math.sin(performance.now() / 900) * 0.002 * (1 - this.aim);
+    const breath = Math.sin(performance.now() / 900) * 0.002 * (1 - this.aim) * calm;
 
-    this.sway.x += (THREE.MathUtils.clamp(-s.lookDX * 0.0006, -0.04, 0.04) - this.sway.x) * Math.min(1, dt * 10);
-    this.sway.y += (THREE.MathUtils.clamp(s.lookDY * 0.0006, -0.04, 0.04) - this.sway.y) * Math.min(1, dt * 10);
+    this.sway.x += (THREE.MathUtils.clamp(-s.lookDX * 0.0006, -0.04, 0.04) * calm - this.sway.x) * Math.min(1, dt * 10);
+    this.sway.y += (THREE.MathUtils.clamp(s.lookDY * 0.0006, -0.04, 0.04) * calm - this.sway.y) * Math.min(1, dt * 10);
     const swayK = 1 - this.aim * 0.8;
 
     const hip = def.hip;

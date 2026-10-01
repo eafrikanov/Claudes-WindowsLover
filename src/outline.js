@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MC } from './style-mc.js';
 
 const cache = new Map();
 
@@ -17,6 +18,7 @@ function outlineMaterial(thickness) {
 }
 
 export function addOutlines(root, thickness) {
+  if (MC) return;
   const meshes = [];
   root.traverse((o) => {
     if (o.isMesh && !o.material.transparent && !o.userData.noOutline && !o.userData.isOutline && o.material.type !== 'MeshBasicMaterial') meshes.push(o);

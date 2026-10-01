@@ -1,13 +1,19 @@
-import { Game, TEAM_COLORS } from './game.js';
+import { Game, TEAM_COLORS, QUALITY, DRAW_DISTANCE } from './game.js';
 import { Sound } from './audio.js';
 import { Net, randomCode, normalizeCode } from './net.js';
-import { HostMatch, makeBots } from './match.js';
+import { HostMatch, makeBots, STATE_RATE, RELAY_STATE_RATE } from './match.js';
 import { MAPS } from './map.js';
 import { esc } from './hud.js';
+import { STYLE, STYLES, DEFAULT_STYLE } from './style-mc.js';
 
 const COLORS = ['#ff8a1f', '#e0493d', '#3d82e0', '#46d17a', '#b45de0', '#f2c230', '#29c7c7', '#e05da8', '#9aa3ad'];
 const PREFS_KEY = 'gunarena-prefs';
-const DEFAULT_PREFS = { name: '', color: COLORS[0], sensitivity: 1, fov: 78, volume: 0.7, quality: 'medium', invertY: false };
+const DEFAULT_PREFS = {
+  name: '', color: COLORS[0], sensitivity: 1, adsSens: 1, invertY: false, aimMode: 'hold', crouchMode: 'hold', sprintMode: 'hold',
+  style: DEFAULT_STYLE, fov: 78, quality: 'medium', renderScale: 100, drawDist: 'mid', viewBob: true, screenShake: true, showFps: false,
+  volume: 0.7, fxVolume: 1, uiVolume: 1,
+};
+const INPUT_MODES = { hold: 'Удерживать', toggle: 'Переключать' };
 const DEFAULT_ROOM = { map: 'port', mode: 'dm', scoreLimit: 20, timeLimit: 10, maxPlayers: 8, bots: 0, botSkill: 'normal' };
 const MODE_NAMES = { dm: 'Все против всех', tdm: 'Команда на команду' };
 const SKILL_NAMES = { easy: 'Лёгкие', normal: 'Средние', hard: 'Сложные' };
@@ -31,7 +37,7 @@ const prefs = loadPrefs();
 if (!prefs.name) prefs.name = `Игрок${Math.floor(100 + Math.random() * 900)}`;
 
 const sound = new Sound();
-sound.setVolume(prefs.volume);
+sound.setVolume(prefs.volume, prefs.fxVolume, prefs.uiVolume);
 const game = new Game($('view'), sound, prefs);
 
 const state = {
@@ -343,9 +349,9 @@ function hostOnMessage(id, msg) {
   }
 }
 
-function emitFromHost(msg, except) {
-  if (state.online) state.net.broadcast(msg, except);
-  if (except !== state.localId) dispatchGame(msg);
+function emitFromHost(msg, except, route) {
+  if (state.online) state.net.broadcast(msg, except, route);
+  if (except !== state.localId && route !== 'relay') dispatchGame(msg);
 }
 
 function routeHostLocal(msg) {
@@ -455,8 +461,12 @@ function dispatchGame(msg) {
     onMatchEnd(msg);
     return;
   }
-  if (state.loading) state.queue.push(msg);
-  else if (state.inGame) game.handle(msg);
+  // Состояния, накопленные за загрузку карты, устарели и только сбили бы оценку задержки
+  if (state.loading) {
+    if (msg.t !== 'st') state.queue.push(msg);
+  } else if (state.inGame) {
+    game.handle(msg);
+  }
 }
 
 async function beginMatch({ map, settings, roster, snapshot }) {
@@ -465,6 +475,7 @@ async function beginMatch({ map, settings, roster, snapshot }) {
   loading(`Загрузка карты «${MAPS[map].name}»…`);
   await new Promise((r) => setTimeout(r, 50));
   game.send = state.host ? routeHostLocal : (msg) => state.net?.send(msg);
+  game.stateRate = !state.host && state.net?.mode === 'relay' ? RELAY_STATE_RATE : STATE_RATE;
   await game.startMatch({ mapId: map, localId: state.localId, roster, settings, snapshot });
   state.loading = false;
   state.inGame = true;
@@ -665,30 +676,90 @@ $('pause-leave').addEventListener('click', () => {
 
 function openSettings(back) {
   state.settingsBack = back;
-  $('set-sens').value = prefs.sensitivity;
-  $('set-fov').value = prefs.fov;
-  $('set-vol').value = prefs.volume;
-  $('set-invert').checked = prefs.invertY;
-  renderSettingsLabels();
-  segment($('set-quality'), ['low', 'medium', 'high'], ['Низкое', 'Среднее', 'Высокое'], prefs.quality, (v) => {
-    prefs.quality = v;
-    openSettings(state.settingsBack);
-  });
+  renderSettings();
   show('settings');
 }
 
-function renderSettingsLabels() {
-  $('sens-val').textContent = Number(prefs.sensitivity).toFixed(2);
-  $('fov-val').textContent = prefs.fov;
-  $('vol-val').textContent = `${Math.round(prefs.volume * 100)}%`;
+function renderSettings() {
+  $('set-sens').value = prefs.sensitivity;
+  $('set-sens-num').value = prefs.sensitivity;
+  $('set-ads').value = prefs.adsSens;
+  $('set-fov').value = prefs.fov;
+  $('set-scale').value = prefs.renderScale;
+  $('set-vol').value = prefs.volume;
+  $('set-fxvol').value = prefs.fxVolume;
+  $('set-uivol').value = prefs.uiVolume;
+  $('set-invert').checked = prefs.invertY;
+  $('set-bob').checked = prefs.viewBob;
+  $('set-shake').checked = prefs.screenShake;
+  $('set-fps').checked = prefs.showFps;
+  renderSettingsLabels();
+  const pick = (key) => (v) => { prefs[key] = v; applySettings(); renderSettings(); };
+  const modes = Object.keys(INPUT_MODES);
+  segment($('set-aim-mode'), modes, Object.values(INPUT_MODES), prefs.aimMode, pick('aimMode'));
+  segment($('set-crouch-mode'), modes, Object.values(INPUT_MODES), prefs.crouchMode, pick('crouchMode'));
+  segment($('set-sprint-mode'), modes, Object.values(INPUT_MODES), prefs.sprintMode, pick('sprintMode'));
+  segment($('set-style'), Object.keys(STYLES), Object.values(STYLES), prefs.style, (v) => { prefs.style = v; savePrefs(); renderSettings(); });
+  $('style-hint').textContent = prefs.style === STYLE ? '' : state.settingsBack === 'pause'
+    ? 'Применится при следующем запуске игры'
+    : 'Применится после «Готово», страница перезагрузится';
+  segment($('set-quality'), Object.keys(QUALITY), Object.values(QUALITY).map((q) => q.label), prefs.quality, pick('quality'));
+  segment($('set-draw'), Object.keys(DRAW_DISTANCE), Object.values(DRAW_DISTANCE).map((d) => d.label), prefs.drawDist, pick('drawDist'));
 }
 
-$('set-sens').addEventListener('input', (e) => { prefs.sensitivity = Number(e.target.value); renderSettingsLabels(); });
-$('set-fov').addEventListener('input', (e) => { prefs.fov = Number(e.target.value); renderSettingsLabels(); });
-$('set-vol').addEventListener('input', (e) => { prefs.volume = Number(e.target.value); sound.setVolume(prefs.volume); renderSettingsLabels(); });
-$('set-invert').addEventListener('change', (e) => { prefs.invertY = e.target.checked; });
+function renderSettingsLabels() {
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  $('sens-val').textContent = Number(prefs.sensitivity).toFixed(2);
+  $('ads-val').textContent = `×${Number(prefs.adsSens).toFixed(2)}`;
+  $('fov-val').textContent = prefs.fov;
+  $('scale-val').textContent = `${prefs.renderScale}%`;
+  $('vol-val').textContent = pct(prefs.volume);
+  $('fx-val').textContent = pct(prefs.fxVolume);
+  $('ui-val').textContent = pct(prefs.uiVolume);
+}
+
+// Качество перестраивает карту, поэтому применяется только по «Готово»; остальное — сразу.
+function applySettings() {
+  savePrefs();
+  game.applyPrefs(prefs);
+}
+
+function setSens(v) {
+  prefs.sensitivity = Math.round(Math.min(5, Math.max(0.05, v)) * 100) / 100;
+  renderSettingsLabels();
+  applySettings();
+}
+
+const RANGES = { 'set-ads': 'adsSens', 'set-fov': 'fov', 'set-scale': 'renderScale', 'set-vol': 'volume', 'set-fxvol': 'fxVolume', 'set-uivol': 'uiVolume' };
+for (const [id, key] of Object.entries(RANGES)) {
+  $(id).addEventListener('input', (e) => { prefs[key] = Number(e.target.value); renderSettingsLabels(); applySettings(); });
+}
+const CHECKS = { 'set-invert': 'invertY', 'set-bob': 'viewBob', 'set-shake': 'screenShake', 'set-fps': 'showFps' };
+for (const [id, key] of Object.entries(CHECKS)) {
+  $(id).addEventListener('change', (e) => { prefs[key] = e.target.checked; applySettings(); });
+}
+$('set-sens').addEventListener('input', (e) => { setSens(Number(e.target.value)); $('set-sens-num').value = prefs.sensitivity; });
+$('set-sens-num').addEventListener('input', (e) => {
+  const v = Number(e.target.value);
+  if (e.target.value === '' || !Number.isFinite(v) || v < 0.05 || v > 5) return;
+  setSens(v);
+  $('set-sens').value = prefs.sensitivity;
+});
+$('set-sens-num').addEventListener('change', (e) => {
+  const v = Number(e.target.value);
+  if (e.target.value !== '' && Number.isFinite(v)) setSens(v);
+  e.target.value = prefs.sensitivity;
+  $('set-sens').value = prefs.sensitivity;
+});
 $('settings-done').addEventListener('click', async () => {
   savePrefs();
+  if (state.settingsBack !== 'pause' && prefs.style !== STYLE) {
+    const url = new URL(location.href);
+    url.searchParams.delete('style');
+    url.searchParams.delete('preset');
+    location.replace(url);
+    return;
+  }
   const reload = game.applyPrefs(prefs);
   if (state.settingsBack === 'pause') {
     if (reload) notice('Качество графики применится со следующей карты');

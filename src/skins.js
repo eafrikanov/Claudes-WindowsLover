@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { rng } from './textures.js';
+import { MC, pixelSkin } from './style-mc.js';
 
 // Кубический персонаж в духе Pixel Gun: каждая деталь — коробка, грани которой ссылаются
 // на прямоугольники в двух атласах (голова 512² и тело 512²). Раскладка атласов общая для всех
@@ -932,6 +933,7 @@ function paintRect(ctx, rect, base, fn, mirror = false) {
 }
 
 function texture(c) {
+  if (MC) return pixelSkin(c);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;

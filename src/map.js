@@ -40,6 +40,48 @@ function boxGeometry(w, h, d, texScale, offset) {
   return g;
 }
 
+// UV по мировым координатам грани (порядок граней BoxGeometry: +X −X +Y −Y +Z −Z): тексели
+// одного размера на всех коробках, а куски стены вокруг проёмов стыкуются без швов.
+const WORLD_UV = [[[2, -1], [1, 1]], [[2, 1], [1, 1]], [[0, 1], [2, -1]], [[0, 1], [2, 1]], [[0, 1], [1, 1]], [[0, -1], [1, 1]]];
+function worldUV(g, tile) {
+  const p = g.attributes.position;
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    const [[ua, us], [va, vs]] = WORLD_UV[Math.floor(i / 4)];
+    uv.setXY(i, p.getComponent(i, ua) * us / tile, p.getComponent(i, va) * vs / tile);
+  }
+}
+
+// Грани коробок, снаружи целиком закрытые соседними коробками, не нужны: их торцы сходятся
+// с видимыми гранями соседей в одной плоскости и проступают линиями на стыках.
+function cullHidden(solids) {
+  const inside = (p, self) => solids.some((s) => s !== self
+    && p[0] > s.min[0] && p[0] < s.max[0] && p[1] > s.min[1] && p[1] < s.max[1] && p[2] > s.min[2] && p[2] < s.max[2]);
+  for (const box of solids) {
+    const index = box.g.index.array;
+    const keep = [];
+    for (let f = 0; f < 6; f++) {
+      const axis = f >> 1;
+      const [ua, va] = [0, 1, 2].filter((a) => a !== axis);
+      const p = [0, 0, 0];
+      p[axis] = f & 1 ? box.min[axis] - 0.01 : box.max[axis] + 0.01;
+      const nu = Math.min(8, Math.max(2, Math.ceil((box.max[ua] - box.min[ua]) / 0.4)));
+      const nv = Math.min(8, Math.max(2, Math.ceil((box.max[va] - box.min[va]) / 0.4)));
+      let hidden = true;
+      for (let i = 0; i < nu && hidden; i++) {
+        for (let j = 0; j < nv && hidden; j++) {
+          p[ua] = box.min[ua] + 0.02 + (box.max[ua] - box.min[ua] - 0.04) * (i + 0.5) / nu;
+          p[va] = box.min[va] + 0.02 + (box.max[va] - box.min[va] - 0.04) * (j + 0.5) / nv;
+          hidden = inside(p, box);
+        }
+      }
+      if (!hidden) keep.push(...index.slice(f * 6, f * 6 + 6));
+    }
+    box.g.setIndex(keep);
+    box.g.clearGroups();
+  }
+}
+
 class MapBuilder {
   constructor(textures, seed) {
     this.textures = textures;
@@ -49,13 +91,14 @@ class MapBuilder {
     this.pickups = [];
     this.extra = new THREE.Group();
     this.edges = [];
+    this.solids = [];
     this.rand = rng(seed);
   }
 
   material(name, variant) {
     const key = variant ? `${name}:${variant}` : name;
     if (!this.parts.has(key)) {
-      const mat = name === 'container' ? this.textures.get('container', CONTAINER_COLORS[variant]) : this.textures.get(name);
+      const mat = this.textures.get(name, name === 'container' ? CONTAINER_COLORS[variant] : variant ? [variant] : null);
       this.parts.set(key, { mat, geos: [] });
     }
     return this.parts.get(key);
@@ -63,10 +106,16 @@ class MapBuilder {
 
   // cx, cz — центр; y — низ.
   box(cx, y, cz, w, h, d, mat, { variant, texScale = 2, collide = true, uvBox = false } = {}) {
-    const g = boxGeometry(w, h, d, uvBox ? 0 : texScale, uvBox ? 0 : Math.floor(this.rand() * 8) / 8);
+    const offset = uvBox ? 0 : Math.floor(this.rand() * 8) / 8;
+    const tile = uvBox ? 0 : this.textures.tile(mat);
+    // С мировыми UV соседние куски стен слегка перекрываются: стык без щелей, наложение невидимо.
+    const e = tile ? 0.002 : 0;
+    const g = boxGeometry(w + e, h + e, d + e, uvBox || tile ? 0 : texScale, offset);
     g.translate(cx, y + h / 2, cz);
+    if (tile) worldUV(g, tile);
     this.material(mat, variant).geos.push(g);
-    this.edges.push(new THREE.EdgesGeometry(g));
+    if (this.textures.pixel) this.solids.push({ g, min: [cx - w / 2, y, cz - d / 2], max: [cx + w / 2, y + h, cz + d / 2] });
+    else this.edges.push(new THREE.EdgesGeometry(g));
     if (collide) this.colliders.push({ min: [cx - w / 2, y, cz - d / 2], max: [cx + w / 2, y + h, cz + d / 2] });
   }
 
@@ -89,16 +138,22 @@ class MapBuilder {
   }
 
   crate(cx, y, cz, s) {
-    this.box(cx, y, cz, s, s, s, 'crate', { uvBox: true });
+    this.box(cx, y, cz, s, s, s, 'crate', { uvBox: true, variant: this.textures.pixel ? Math.round(s * 16) : undefined });
   }
 
   barrel(cx, y, cz, color) {
     const mat = this.material('container', color).mat;
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.2, 20), mat);
+    const geo = new THREE.CylinderGeometry(0.42, 0.42, 1.2, 20);
+    const tile = this.textures.tile('container');
+    if (tile) {
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2.64 / tile, uv.getY(i) * 1.2 / tile);
+    }
+    const m = new THREE.Mesh(geo, mat);
     m.position.set(cx, y + 0.6, cz);
     m.rotation.y = this.rand() * Math.PI;
     m.castShadow = m.receiveShadow = true;
-    this.edges.push(new THREE.EdgesGeometry(m.geometry, 30).translate(cx, y + 0.6, cz));
+    if (!this.textures.pixel) this.edges.push(new THREE.EdgesGeometry(m.geometry, 30).translate(cx, y + 0.6, cz));
     this.extra.add(m);
     const rimMat = this.material('metalSheet').mat;
     for (const ry of [0.25, 0.95]) {
@@ -153,6 +208,7 @@ class MapBuilder {
   }
 
   build() {
+    cullHidden(this.solids);
     const group = new THREE.Group();
     for (const { mat, geos } of this.parts.values()) {
       if (!geos.length) continue;
@@ -163,9 +219,10 @@ class MapBuilder {
       geos.forEach((g) => g.dispose());
     }
     group.add(this.extra);
-    const lines = new THREE.LineSegments(mergeGeometries(this.edges), new THREE.LineBasicMaterial({ color: 0x2a2230 }));
-    this.edges.forEach((g) => g.dispose());
-    group.add(lines);
+    if (this.edges.length) {
+      group.add(new THREE.LineSegments(mergeGeometries(this.edges), new THREE.LineBasicMaterial({ color: 0x2a2230 })));
+      this.edges.forEach((g) => g.dispose());
+    }
     return group;
   }
 }

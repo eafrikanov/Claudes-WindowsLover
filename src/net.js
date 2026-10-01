@@ -70,6 +70,9 @@ const JOIN_TIMEOUT_MS = 20000;
 const RELAY_MIN_MS = 8000;
 const RELAY_MAX_MS = 12000;
 const CONTROL = new Set(['join', 'accept', 'ping', 'bye']);
+// Второй канал WebRTC без упорядочивания для потока 'st': потерянный пакет не задерживает следующие
+// и не стоит в очереди с событиями игры. В PeerJS 1.5 reliable: false — это ordered: false.
+const STREAM = 'st';
 
 function brokerList() {
   const url = query().get('relay');
@@ -157,7 +160,9 @@ export class Net {
   constructor() {
     this.peer = null;
     this.conns = new Map();
+    this.streams = new Map();
     this.hostConn = null;
+    this.streamConn = null;
     this.relays = new Map();
     this.brokers = [];
     this.relay = null;
@@ -318,6 +323,18 @@ export class Net {
   }
 
   acceptConnection(conn) {
+    if (conn.metadata === STREAM) {
+      conn.on('open', () => this.streams.set(conn.peer, conn));
+      conn.on('data', (msg) => {
+        if (msg?.t === STREAM && this.conns.has(conn.peer)) this.onMessage(conn.peer, msg);
+      });
+      const gone = () => {
+        if (this.streams.get(conn.peer) === conn) this.streams.delete(conn.peer);
+      };
+      conn.on('close', gone);
+      conn.on('error', gone);
+      return;
+    }
     conn.on('open', () => {
       this.conns.set(conn.peer, conn);
       this.onJoin(conn.peer);
@@ -326,6 +343,7 @@ export class Net {
     const drop = () => {
       if (this.conns.get(conn.peer) === conn) {
         this.conns.delete(conn.peer);
+        this.streams.get(conn.peer)?.close();
         this.onLeave(conn.peer);
       }
     };
@@ -384,6 +402,7 @@ export class Net {
         this.hostConn = conn;
         conn.on('open', () => {
           this.id = id;
+          this.openStream(peer, code);
           finish({ id });
         });
         conn.on('data', (msg) => this.onMessage('host', msg));
@@ -399,6 +418,16 @@ export class Net {
           console.warn('peer error', err);
         }
       });
+    });
+  }
+
+  openStream(peer, code) {
+    const conn = peer.connect(PREFIX + code, { reliable: false, serialization: 'json', metadata: STREAM });
+    this.streamConn = conn;
+    conn.on('data', (msg) => this.onMessage('host', msg));
+    conn.on('error', () => {});
+    conn.on('close', () => {
+      if (this.streamConn === conn) this.streamConn = null;
     });
   }
 
@@ -496,7 +525,7 @@ export class Net {
   }
 
   send(msg) {
-    if (this.hostConn?.open) this.hostConn.send(msg);
+    if (this.hostConn?.open) (msg.t === STREAM && this.streamConn?.open ? this.streamConn : this.hostConn).send(msg);
     else if (this.relay) publish(this.relay, this.topic('host'), { f: this.id, m: msg });
   }
 
@@ -510,9 +539,16 @@ export class Net {
     if (rc) publish(rc.client, this.topic('c/' + id), { f: this.id, m: msg });
   }
 
-  broadcast(msg, except) {
-    for (const [id, c] of this.conns) if (id !== except && c.open) c.send(msg);
-    if (!this.relays.size) return;
+  // route: 'p2p' — только прямым соединениям, 'relay' — только через брокер, иначе всем
+  broadcast(msg, except, route) {
+    if (route !== 'relay') {
+      for (const [id, c] of this.conns) {
+        if (id === except || !c.open) continue;
+        const st = msg.t === STREAM && this.streams.get(id);
+        (st?.open ? st : c).send(msg);
+      }
+    }
+    if (route === 'p2p' || !this.relays.size) return;
     const data = { f: this.id, m: msg };
     for (const [id, rc] of this.relays) if (id !== except) publish(rc.client, this.topic('c/' + id), data);
   }
@@ -536,11 +572,15 @@ export class Net {
   shutdown() {
     this.session++;
     clearInterval(this.pingTimer);
-    for (const c of this.conns.values()) c.close();
+    for (const c of [...this.conns.values(), ...this.streams.values()]) c.close();
     this.conns.clear();
+    this.streams.clear();
     const hc = this.hostConn;
+    const sc = this.streamConn;
     this.hostConn = null;
+    this.streamConn = null;
     hc?.close();
+    sc?.close();
     this.peer?.destroy();
     this.peer = null;
     for (const [id, rc] of this.relays) publish(rc.client, this.topic('c/' + id), { f: this.id, c: 'bye' });

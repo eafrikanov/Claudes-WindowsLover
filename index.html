@@ -55,6 +55,7 @@
       <div id="death-by"></div>
       <div id="death-timer"></div>
     </div>
+    <div id="fps" class="hidden"></div>
     <div id="scoreboard"><div class="board-title">ТАБЛИЦА СЧЁТА</div><table><thead><tr><th>Игрок</th><th>Убийства</th><th>Смерти</th></tr></thead><tbody id="scoreboard-body"></tbody></table></div>
   </div>
 
@@ -169,19 +170,38 @@
     </section>
 
     <section id="screen-settings" class="screen hidden">
-      <div class="panel">
+      <div class="panel wide">
         <h2>Настройки</h2>
-        <label class="field"><span>Чувствительность мыши: <b id="sens-val"></b></span><input type="range" id="set-sens" min="0.2" max="3" step="0.05"></label>
-        <label class="field"><span>Поле зрения (FOV): <b id="fov-val"></b></span><input type="range" id="set-fov" min="60" max="100" step="1"></label>
-        <label class="field"><span>Громкость: <b id="vol-val"></b></span><input type="range" id="set-vol" min="0" max="1" step="0.05"></label>
-        <div class="field"><span>Качество графики</span>
-          <div class="seg" id="set-quality">
-            <button data-v="low">Низкое</button>
-            <button data-v="medium">Среднее</button>
-            <button data-v="high">Высокое</button>
+        <div class="grid2">
+          <div>
+            <div class="section-title group">Мышь и управление</div>
+            <div class="field"><span>Чувствительность мыши: <b id="sens-val"></b></span>
+              <div class="range-num"><input type="range" id="set-sens" min="0.05" max="5" step="0.01"><input type="number" id="set-sens-num" min="0.05" max="5" step="0.01"></div>
+            </div>
+            <label class="field"><span>Чувствительность в прицеле: <b id="ads-val"></b></span><input type="range" id="set-ads" min="0.2" max="2" step="0.05"></label>
+            <label class="check"><input type="checkbox" id="set-invert"> Инвертировать ось Y</label>
+            <div class="modes">
+              <span>Прицел</span><div class="seg" id="set-aim-mode"></div>
+              <span>Присед</span><div class="seg" id="set-crouch-mode"></div>
+              <span>Бег</span><div class="seg" id="set-sprint-mode"></div>
+            </div>
+          </div>
+          <div>
+            <div class="section-title group">Графика</div>
+            <div class="field"><span>Стиль графики</span><div class="seg" id="set-style"></div><small class="muted small" id="style-hint"></small></div>
+            <div class="field"><span>Качество графики</span><div class="seg" id="set-quality"></div></div>
+            <label class="field"><span>Поле зрения (FOV): <b id="fov-val"></b></span><input type="range" id="set-fov" min="60" max="100" step="1"></label>
+            <label class="field"><span>Масштаб рендера: <b id="scale-val"></b></span><input type="range" id="set-scale" min="50" max="100" step="5"></label>
+            <div class="field"><span>Дальность прорисовки</span><div class="seg" id="set-draw"></div></div>
+            <label class="check"><input type="checkbox" id="set-bob"> Покачивание камеры и оружия</label>
+            <label class="check"><input type="checkbox" id="set-shake"> Тряска экрана</label>
+            <label class="check"><input type="checkbox" id="set-fps"> Счётчик FPS</label>
+            <div class="section-title group">Звук</div>
+            <label class="field"><span>Общая громкость: <b id="vol-val"></b></span><input type="range" id="set-vol" min="0" max="1" step="0.05"></label>
+            <label class="field"><span>Эффекты: <b id="fx-val"></b></span><input type="range" id="set-fxvol" min="0" max="1" step="0.05"></label>
+            <label class="field"><span>Сигналы: <b id="ui-val"></b></span><input type="range" id="set-uivol" min="0" max="1" step="0.05"></label>
           </div>
         </div>
-        <label class="check"><input type="checkbox" id="set-invert"> Инвертировать ось Y</label>
         <div class="row end">
           <button class="btn primary" id="settings-done">Готово</button>
         </div>

@@ -4,7 +4,9 @@ import { moveBody, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY, J
 export const RESPAWN_DELAY = 2;
 const PICKUP_RESPAWN = 20;
 const PICKUP_HEAL = 50;
-const STATE_RATE = 1 / 20;
+// Частота состояний: 30 Гц по WebRTC; публичным MQTT-брокерам оставляем прежние 20 Гц
+export const STATE_RATE = 1 / 30;
+export const RELAY_STATE_RATE = 1 / 20;
 
 const BOT_NAMES = ['Ворон', 'Гвоздь', 'Шторм', 'Кактус', 'Бизон', 'Феникс', 'Тень', 'Граф', 'Лис', 'Молот'];
 const BOT_SKILL = {
@@ -15,6 +17,8 @@ const BOT_SKILL = {
 const PREFERRED_RANGE = { pistol: 12, rifle: 16, shotgun: 5, sniper: 30, minigun: 14, laser: 18 };
 
 const r2 = (v) => Math.round(v * 100) / 100;
+const r1 = (v) => Math.round(v * 10) / 10;
+const vec3 = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 
 export function makeBots(count, teams, startIndex = 0) {
   const bots = [];
@@ -43,6 +47,7 @@ export class HostMatch {
     this.time = 0;
     this.endAt = settings.timeLimit * 60;
     this.stateAcc = 0;
+    this.relayAcc = 0;
     this.clockAcc = 0;
     this.over = false;
     this.pickups = map.pickups.map(() => ({ on: true, at: 0 }));
@@ -55,7 +60,7 @@ export class HostMatch {
       ...p,
       hp: 100, alive: false, kills: 0, deaths: 0,
       pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, w: p.bot ? this.botWeapon() : 0, c: 0,
-      respawnAt: 0,
+      ts: 0, v: [0, 0, 0], relayTs: 0, respawnAt: 0,
     };
     if (p.bot) {
       rec.vel = { x: 0, y: 0, z: 0 };
@@ -148,11 +153,32 @@ export class HostMatch {
     this.emit({ t: 'spawn', id: p.id, p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], yaw: r2(p.yaw), w: p.w });
   }
 
+  // ts — время отправителя (мс по его часам), пересылается как есть: получатель сам сводит часы.
+  // Прямым соединениям состояние уходит сразу, без ожидания тика хоста.
   onState(id, s) {
     const p = this.players.get(id);
-    if (!p || !p.alive) return;
+    if (!p || !p.alive || !vec3(s.p) || !(s.ts > p.ts)) return;
+    p.ts = s.ts;
     p.pos.x = s.p[0]; p.pos.y = s.p[1]; p.pos.z = s.p[2];
+    p.v = vec3(s.v) ? s.v : [0, 0, 0];
     p.yaw = s.yaw; p.pitch = s.pitch; p.w = s.w; p.c = s.c ? 1 : 0;
+    this.emit({ t: 'st', s: [this.stateEntry(p)] }, id, 'p2p');
+  }
+
+  stateEntry(p) {
+    const v = p.bot ? [r1(p.vel.x), r1(p.vel.y), r1(p.vel.z)] : p.v;
+    return [p.id, p.ts, r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), v[0], v[1], v[2], r2(p.yaw), r2(p.pitch), p.w, p.c];
+  }
+
+  // P2P-получатели людей уже получили из onState, им — только боты; через брокер — всё новое одним пакетом
+  sendStates(route) {
+    const s = [];
+    for (const p of this.players.values()) {
+      if (!p.alive || (route === 'p2p' ? !p.bot : p.ts <= p.relayTs)) continue;
+      if (route === 'relay') p.relayTs = p.ts;
+      s.push(this.stateEntry(p));
+    }
+    if (s.length) this.emit({ t: 'st', s }, undefined, route);
   }
 
   onShot(id, msg) {
@@ -243,12 +269,16 @@ export class HostMatch {
   update(dt) {
     if (this.over) return;
     this.time += dt;
+    const now = Math.round(performance.now());
     for (const p of this.players.values()) {
       if (!p.alive && p.respawnAt && this.time >= p.respawnAt) {
         p.respawnAt = 0;
         this.respawn(p);
       }
-      if (p.bot && p.alive) this.updateBot(p, dt);
+      if (p.bot && p.alive) {
+        this.updateBot(p, dt);
+        p.ts = now;
+      }
     }
     this.pickups.forEach((pk, i) => {
       if (!pk.on && this.time >= pk.at) {
@@ -267,13 +297,13 @@ export class HostMatch {
     }
     this.stateAcc += dt;
     if (this.stateAcc >= STATE_RATE) {
-      this.stateAcc = 0;
-      const s = [];
-      for (const p of this.players.values()) {
-        if (!p.alive) continue;
-        s.push([p.id, r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r2(p.yaw), r2(p.pitch), p.w, p.c]);
-      }
-      this.emit({ t: 'st', s });
+      this.stateAcc = Math.min(this.stateAcc - STATE_RATE, STATE_RATE);
+      this.sendStates('p2p');
+    }
+    this.relayAcc += dt;
+    if (this.relayAcc >= RELAY_STATE_RATE) {
+      this.relayAcc = Math.min(this.relayAcc - RELAY_STATE_RATE, RELAY_STATE_RATE);
+      this.sendStates('relay');
     }
   }
 
