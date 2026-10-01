@@ -607,7 +607,7 @@ export class Game {
     const def = WEAPONS[me.weapon];
     const aiming = this.aimHeld && me.alive && me.reloadUntil <= now && !def.noAds;
     const zoom = aiming ? def.adsFov / this.prefs.fov : 1;
-    const sens = this.prefs.sensitivity * 0.0022 * (aiming ? Math.max(0.25, zoom) : 1);
+    const sens = this.prefs.sensitivity * 0.0029 * (aiming ? Math.max(0.25, zoom) : 1);
     me.yaw -= this.look.dx * sens;
     me.pitch -= this.look.dy * sens * (this.prefs.invertY ? -1 : 1);
     me.pitch = THREE.MathUtils.clamp(me.pitch, -1.5, 1.5);
