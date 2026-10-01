@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MC, PIXEL_TILES, pixelMaterial, mcMaterial } from './style-mc.js';
+import { mcWeaponMaterials } from './mc-gear.js';
 
 export function rng(seed) {
   let a = seed >>> 0;
@@ -339,6 +340,69 @@ const generators = {
     }
   },
 
+  sand: (ctx, s, r) => {
+    ctx.fillStyle = '#e2c27f';
+    ctx.fillRect(0, 0, s, s);
+    ctx.globalAlpha = 0.35;
+    speckles(ctx, s, r, 14, ['#ebcf93', '#d3b06c'], s * 0.05, s * 0.12);
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 4; i++) {
+      const rad = s * (0.03 + r() * 0.04);
+      wrapped(s, r() * s, r() * s, (px, py) => {
+        ctx.fillStyle = '#6aae45';
+        ctx.beginPath();
+        ctx.ellipse(px, py, rad, rad * 0.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    speckles(ctx, s, r, 50, ['#b8955a', '#cfc6b4'], s * 0.004, s * 0.01);
+  },
+
+  stone: (ctx, s, r) => {
+    ctx.fillStyle = '#b9b2a4';
+    ctx.fillRect(0, 0, s, s);
+    const rows = 4;
+    for (let j = 0; j < rows; j++) {
+      const off = j % 2 ? s / 4 : 0;
+      for (let i = -1; i < 2; i++) {
+        const x = i * s / 2 + off;
+        const y = j * s / rows;
+        ctx.fillStyle = shade('#cfc8ba', 0.92 + r() * 0.12);
+        roundRect(ctx, x + s * 0.012, y + s * 0.012, s / 2 - s * 0.024, s / rows - s * 0.024, s * 0.02);
+        ctx.fill();
+      }
+    }
+    speckles(ctx, s, r, 40, ['#a39c8e', '#ddd7cb'], s * 0.004, s * 0.012);
+  },
+
+  log: (ctx, s, r) => {
+    ctx.fillStyle = '#7a5532';
+    ctx.fillRect(0, 0, s, s);
+    ctx.strokeStyle = '#5a3c22';
+    ctx.lineWidth = s * 0.03;
+    for (let i = 0; i < 6; i++) {
+      const x = (i / 6) * s + r() * s * 0.06;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      for (let y = 0; y <= s; y += s / 8) ctx.lineTo(x + Math.sin(y / s * Math.PI * 2 + i) * s * 0.02, y);
+      ctx.stroke();
+    }
+  },
+
+  leaves: (ctx, s, r) => {
+    ctx.fillStyle = '#4f9a35';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 18; i++) {
+      const rad = s * (0.05 + r() * 0.08);
+      wrapped(s, r() * s, r() * s, (px, py) => {
+        ctx.fillStyle = r() > 0.5 ? '#63b545' : '#3f8429';
+        ctx.beginPath();
+        ctx.ellipse(px, py, rad, rad * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  },
+
   wood: (ctx, s, r) => {
     ctx.fillStyle = '#c47e3e';
     ctx.fillRect(0, 0, s, s);
@@ -382,6 +446,7 @@ export class TextureLibrary {
 
   weaponMaterials() {
     if (this.weaponCache) return this.weaponCache;
+    if (MC) return (this.weaponCache = mcWeaponMaterials(1));
     const wood = this.get('wood');
     this.weaponCache = {
       steel: toon({ color: 0x7b8ea6 }),

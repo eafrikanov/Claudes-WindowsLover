@@ -1,5 +1,6 @@
 import { WEAPONS, WEAPON_INDEX } from './weapons.js';
-import { moveBody, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
+import { moveBody, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
+import { NavGraph, JUMP } from './nav.js';
 
 export const RESPAWN_DELAY = 2;
 const PICKUP_RESPAWN = 20;
@@ -18,6 +19,13 @@ const PREFERRED_RANGE = { pistol: 12, rifle: 16, shotgun: 5, sniper: 30, minigun
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const r1 = (v) => Math.round(v * 10) / 10;
+// Граф строится один раз на карту: при смене качества меняются меши, но не коллизии.
+const NAV_CACHE = new Map();
+function navFor(map) {
+  if (!NAV_CACHE.has(map.id)) NAV_CACHE.set(map.id, new NavGraph(map));
+  return NAV_CACHE.get(map.id);
+}
+
 const vec3 = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 
 export function makeBots(count, teams, startIndex = 0) {
@@ -51,7 +59,6 @@ export class HostMatch {
     this.clockAcc = 0;
     this.over = false;
     this.pickups = map.pickups.map(() => ({ on: true, at: 0 }));
-    this.nav = this.buildNav();
     for (const p of roster) this.addRecord(p);
   }
 
@@ -64,7 +71,7 @@ export class HostMatch {
     };
     if (p.bot) {
       rec.vel = { x: 0, y: 0, z: 0 };
-      rec.brain = { target: null, seenAt: 0, wp: null, strafe: 1, strafeT: 0, nextShot: 0, stuck: 0, ammo: WEAPONS[rec.w].mag, reloadUntil: 0, onGround: false };
+      rec.brain = { target: null, seenAt: 0, path: null, k: 1, strafe: 1, strafeT: 0, nextShot: 0, stuck: 0, ammo: WEAPONS[rec.w].mag, reloadUntil: 0, onGround: false };
     }
     this.players.set(p.id, rec);
     return rec;
@@ -73,17 +80,6 @@ export class HostMatch {
   botWeapon() {
     const pool = ['rifle', 'rifle', 'shotgun', 'pistol', 'sniper', 'minigun', 'laser'];
     return WEAPON_INDEX[pool[Math.floor(Math.random() * pool.length)]];
-  }
-
-  buildNav() {
-    const pts = [];
-    const { colliders, half } = this.map;
-    for (let x = -half + 3; x <= half - 3; x += 3.5) {
-      for (let z = -half + 3; z <= half - 3; z += 3.5) {
-        if (!blocked(colliders, x, 0.05, z, PLAYER_RADIUS + 0.3, STAND_HEIGHT)) pts.push({ x, y: 0, z });
-      }
-    }
-    return pts;
   }
 
   roster() {
@@ -148,7 +144,7 @@ export class HostMatch {
     if (p.bot) {
       p.vel = { x: 0, y: 0, z: 0 };
       p.w = this.botWeapon();
-      Object.assign(p.brain, { target: null, wp: null, ammo: WEAPONS[p.w].mag, reloadUntil: 0 });
+      Object.assign(p.brain, { target: null, path: null, ammo: WEAPONS[p.w].mag, reloadUntil: 0 });
     }
     this.emit({ t: 'spawn', id: p.id, p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], yaw: r2(p.yaw), w: p.w });
   }
@@ -322,29 +318,53 @@ export class HostMatch {
     return best ? { o: best, d: bestD } : null;
   }
 
+  // Граф нужен только ботам, поэтому строится при первом выборе маршрута, а не на старте матча.
+  get nav() {
+    if (!this.navGraph) {
+      const nav = navFor(this.map);
+      const home = nav.reach(this.map.spawns.map((sp) => nav.nearest(sp.x, sp.y, sp.z)).filter(Boolean), false, true);
+      this.roam = nav.nodes.filter((n) => n.inside && home[n.id] && n.h === STAND_HEIGHT);
+      this.navGraph = nav;
+    }
+    return this.navGraph;
+  }
+
+  // Цель: аптечка при малом здоровье, иначе с вероятностью 0.6 — окрестность противника, иначе случайная точка.
+  // Маршрут строится по навигационному графу, поэтому боты ходят по лестницам, крышам и мостам.
   chooseWaypoint(b) {
     const br = b.brain;
+    const nav = this.nav;
+    let goal = null;
     if (b.hp < 55) {
-      let best = null;
-      let bd = Infinity;
+      let bd = 25;
       this.map.pickups.forEach((pk, i) => {
-        if (!this.pickups[i].on || pk.y > 0.5) return;
-        const d = Math.hypot(pk.x - b.pos.x, pk.z - b.pos.z);
-        if (d < bd && lineOfSight(this.map.colliders, [b.pos.x, b.pos.y + 0.9, b.pos.z], [pk.x, 0.9, pk.z])) { bd = d; best = pk; }
+        const d = Math.hypot(pk.x - b.pos.x, pk.y - b.pos.y, pk.z - b.pos.z);
+        if (this.pickups[i].on && d < bd) { bd = d; goal = nav.nearest(pk.x, pk.y + 0.1, pk.z); }
       });
-      if (best) { br.wp = { x: best.x, z: best.z }; return; }
     }
-    const from = [b.pos.x, b.pos.y + 0.9, b.pos.z];
-    const options = [];
-    for (let i = 0; i < 24; i++) {
-      const n = this.nav[Math.floor(Math.random() * this.nav.length)];
+    const prey = [...this.players.values()].filter((o) => o.alive && this.enemies(b, o));
+    if (!goal && prey.length && Math.random() < 0.6) {
+      const o = prey[Math.floor(Math.random() * prey.length)];
+      goal = nav.nearest(o.pos.x + (Math.random() - 0.5) * 8, o.pos.y + 0.5, o.pos.z + (Math.random() - 0.5) * 8, 8);
+    }
+    for (let i = 0; !goal && i < 12; i++) {
+      const n = this.roam[Math.floor(Math.random() * this.roam.length)];
       const d = Math.hypot(n.x - b.pos.x, n.z - b.pos.z);
-      if (d < 4 || d > 30) continue;
-      if (lineOfSight(this.map.colliders, from, [n.x, 0.9, n.z])) options.push(n);
-      if (options.length >= 3) break;
+      if (d >= 6 && d <= 30) goal = n;
     }
-    const n = options[0] || this.nav[Math.floor(Math.random() * this.nav.length)];
-    br.wp = { x: n.x, z: n.z };
+    goal ||= this.roam[Math.floor(Math.random() * this.roam.length)];
+    br.goal = goal;
+    br.replans = 0;
+    this.planPath(b);
+  }
+
+  planPath(b) {
+    const br = b.brain;
+    const nav = this.nav;
+    const path = nav.simplify(nav.path(nav.nearest(b.pos.x, b.pos.y, b.pos.z), br.goal));
+    br.path = path && path.length > 1 ? path : null;
+    br.k = 1;
+    br.kT = 0;
   }
 
   updateBot(b, dt) {
@@ -362,6 +382,7 @@ export class HostMatch {
     let moveZ = 0;
     let wantYaw = b.yaw;
     let speed = 4.6;
+    let jump = false;
 
     if (seen) {
       const o = seen.o;
@@ -387,16 +408,38 @@ export class HostMatch {
       if (canFire) this.botFire(b, o, seen.d, def);
     } else {
       b.pitch *= 0.9;
-      if (!br.wp || Math.hypot(br.wp.x - b.pos.x, br.wp.z - b.pos.z) < 1.2 || br.stuck > 1.2) {
+      // Сорвался ниже маршрута или долго не может дойти до точки — маршрут заново, к той же цели дважды.
+      const cur = br.path?.[br.k];
+      const fell = cur && br.onGround && b.pos.y < Math.min(cur.node.y, br.path[br.k - 1].node.y) - 0.8;
+      const slow = cur && br.kT > 2 + Math.hypot(cur.node.x - b.pos.x, cur.node.z - b.pos.z) / 2;
+      if (br.path && (fell || slow || br.stuck > 1.2) && br.replans < 2) {
+        br.replans++;
+        br.stuck = 0;
+        this.planPath(b);
+      } else if (!br.path || fell || slow || br.stuck > 1.2) {
         br.stuck = 0;
         this.chooseWaypoint(b);
       }
-      const dx = br.wp.x - b.pos.x;
-      const dz = br.wp.z - b.pos.z;
-      const d = Math.hypot(dx, dz) || 1;
-      moveX = dx / d;
-      moveZ = dz / d;
-      wantYaw = Math.atan2(-dx, -dz);
+      br.kT += dt;
+      const step = br.path?.[br.k];
+      if (step) {
+        const n = step.node;
+        const dx = n.x - b.pos.x;
+        const dz = n.z - b.pos.z;
+        const d = Math.hypot(dx, dz);
+        // В прыжке точка засчитывается только на её уровне, иначе бот сворачивает раньше времени и падает.
+        if (d < 0.4 && (br.onGround ? Math.abs(n.y - b.pos.y) < 0.7 : b.pos.y > n.y - 0.1)) {
+          br.k++;
+          br.kT = 0;
+          if (br.k >= br.path.length) br.path = null;
+        } else {
+          moveX = dx / (d || 1);
+          moveZ = dz / (d || 1);
+          wantYaw = Math.atan2(-dx, -dz);
+          const from = br.path[br.k - 1].node;
+          if (step.kind === JUMP && (Math.hypot(from.x - b.pos.x, from.z - b.pos.z) < 0.35 || (n.y > b.pos.y + 0.5 && d < 1))) jump = true;
+        }
+      }
     }
 
     let dy = wantYaw - b.yaw;
@@ -408,10 +451,11 @@ export class HostMatch {
     const v = b.vel;
     v.x += (moveX * speed - v.x) * Math.min(1, dt * 10);
     v.z += (moveZ * speed - v.z) * Math.min(1, dt * 10);
+    if (jump && br.onGround) v.y = JUMP_SPEED;
     v.y -= GRAVITY * dt;
     const bx = b.pos.x;
     const bz = b.pos.z;
-    br.onGround = moveBody(this.map.colliders, b.pos, v, dt, PLAYER_RADIUS, STAND_HEIGHT, true);
+    br.onGround = moveBody(this.map.colliders, b.pos, v, dt, PLAYER_RADIUS, STAND_HEIGHT, br.onGround);
     const moved = Math.hypot(b.pos.x - bx, b.pos.z - bz);
     if (len > 0.3 && moved < speed * dt * 0.3) {
       br.stuck += dt;

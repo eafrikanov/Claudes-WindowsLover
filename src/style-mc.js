@@ -40,6 +40,7 @@ export const PRESETS = {
 };
 
 function pickStyle() {
+  if (typeof location === 'undefined') return 'cartoon';
   const params = new URLSearchParams(location.search);
   if (params.get('style') === 'cartoon') return 'cartoon';
   if (params.get('style') === 'mc') return PRESETS[params.get('preset')] ? params.get('preset') : 'golden';
@@ -293,6 +294,48 @@ const GENERATORS = {
     });
   },
 
+  sand(S, seed) {
+    const sand = ramp(['#a8916a', '#b09970', '#b8a177', '#bfa87d']);
+    const grass = ramp(['#56713a', '#5f7b3f', '#688545']);
+    return paint(S, S, (x, y) => {
+      if (vnoise(x, y, 8, S, seed + 2) * 0.8 + 0.2 * hash(x, y, seed + 3) > 0.78) return pick(grass, hash(x, y, seed + 4));
+      let c = pick(sand, tone(x, y, S, seed, 0.6, 0.3, 4));
+      if (hash(x, y, seed + 5) > 0.97) c = rgb(hash(x, y, seed + 6) > 0.5 ? '#8f8a80' : '#7a6a52');
+      return c;
+    });
+  },
+
+  // Тёсаный известняк: блоки 8×4 текселя со светлой гранью сверху и тёмной снизу.
+  stone(S, seed) {
+    const r = ramp(['#8f8a80', '#98938a', '#a19c93', '#aaa59c']);
+    return paint(S, S, (x, y) => {
+      const row = Math.floor(y / 4);
+      const off = row % 2 ? 4 : 0;
+      if (y % 4 === 3 || (x + off) % 8 === 0) return mul(pick(r, hash(x, y, seed)), 0.72);
+      let c = mul(pick(r, tone(x, y, S, seed, 0.5, 0.3, 4)), 0.95 + 0.1 * hash(Math.floor((x + off) / 8), row, seed + 2));
+      if (y % 4 === 0) c = mul(c, 1.08);
+      return c;
+    });
+  },
+
+  log(S, seed) {
+    const r = ramp(['#4a3826', '#53402b', '#5c4730', '#654f35']);
+    return paint(S, S, (x, y) => {
+      let c = pick(r, clamp01(0.5 + 0.45 * (hash(x, Math.floor(y / 5), seed) - 0.5) + 0.3 * (hash(x, y, seed + 1) - 0.5)));
+      if (x % 4 === 0) c = mul(c, 0.78);
+      return c;
+    });
+  },
+
+  leaves(S, seed) {
+    const r = ramp(['#304d22', '#385a27', '#41652c', '#4a7032', '#537a37']);
+    return paint(S, S, (x, y) => {
+      const h = hash(x, y, seed);
+      if (h < 0.12) return rgb('#22361a');
+      return pick(r, tone(x, y, S, seed + 1, 0.8, 0.3, 4));
+    });
+  },
+
   wood(S, seed) {
     const r = ramp(['#76552f', '#805d34', '#8a6539', '#946d3e']);
     return paint(S, S, (x, y) => {
@@ -304,7 +347,7 @@ const GENERATORS = {
 };
 
 // Метры на один повтор текстуры (16 текселей на метр). Ящики размечаются по граням отдельно.
-export const PIXEL_TILES = { asphalt: 4, concrete: 2, brick: 2, plaster: 4, dirt: 16, container: 4, metalSheet: 1, diamondPlate: 1, hazard: 1, wood: 1 };
+export const PIXEL_TILES = { asphalt: 4, concrete: 2, brick: 2, plaster: 4, dirt: 16, container: 4, metalSheet: 1, diamondPlate: 1, hazard: 1, wood: 1, sand: 8, stone: 2, log: 1, leaves: 1 };
 const ROUGH = { metalSheet: 0.55, diamondPlate: 0.5, container: 0.65, hazard: 0.75 };
 
 export function pixelTexture(c, aniso = 1) {

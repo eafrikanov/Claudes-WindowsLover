@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import * as EXTRA from './weapons-extra.js';
+import { MC } from './style-mc.js';
+import { gearBox, gearCylinder, gearGeometry } from './mc-gear.js';
 
 export const WEAPONS = [
   {
@@ -83,19 +85,35 @@ export function cached(key, make) {
 }
 
 export function rbox(w, h, d, r, mat) {
+  if (MC) return box(w, h, d, mat);
   const rr = Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
   const g = cached(`rb${w},${h},${d},${rr}`, () => new RoundedBoxGeometry(w, h, d, 2, rr));
   return new THREE.Mesh(g, mat);
 }
 
+// В стиле Minecraft скруглённые коробки стали прямыми, и грани соседних деталей местами совпадают:
+// крошечный (до 0.4 %) разброс размеров по ключу убирает мерцание z-fighting.
+function jitter(key, salt) {
+  let h = 2166136261 ^ salt;
+  for (const ch of key) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return 1 + 0.004 * ((h >>> 0) % 1000) / 1000;
+}
+
 export function box(w, h, d, mat) {
-  return new THREE.Mesh(cached(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d)), mat);
+  const key = `b${w},${h},${d}`;
+  return new THREE.Mesh(cached(key, () => (MC ? gearBox(w * jitter(key, 1), h * jitter(key, 2), d * jitter(key, 3)) : new THREE.BoxGeometry(w, h, d))), mat);
 }
 
 // Цилиндр вдоль оси Z.
 export function cyl(r1, r2, len, mat, seg = 20) {
-  const g = cached(`c${r1},${r2},${len},${seg}`, () => new THREE.CylinderGeometry(r1, r2, len, seg).rotateX(Math.PI / 2));
+  const g = cached(`c${r1},${r2},${len},${seg}`, () => (MC ? gearCylinder(r1, r2, len, seg) : new THREE.CylinderGeometry(r1, r2, len, seg).rotateX(Math.PI / 2)));
   return new THREE.Mesh(g, mat);
+}
+
+// Полукольцо/кольцо: в стиле Minecraft — гранёное, с пиксельной разметкой.
+export function torusGeometry(r, tube, radial, tubular, arc) {
+  if (!MC) return new THREE.TorusGeometry(r, tube, radial, tubular, arc);
+  return gearGeometry(new THREE.TorusGeometry(r, tube * 1.4, 4, Math.max(3, Math.round(arc / (Math.PI / 4))), arc));
 }
 
 export function put(parent, mesh, x, y, z, rx = 0, ry = 0, rz = 0) {
@@ -121,7 +139,7 @@ function pistol(m) {
   put(g, rbox(0.03, 0.115, 0.052, 0.01, m.polymer), 0, -0.035, 0.012, -0.28);
   for (let i = 0; i < 4; i++) put(g, box(0.032, 0.004, 0.035, m.darkSteel), 0, -0.01 - i * 0.022, 0.018 + i * 0.006, -0.28);
   put(g, rbox(0.032, 0.012, 0.056, 0.004, m.darkSteel), 0, -0.095, 0.03, -0.28);
-  const guard = new THREE.Mesh(cached('pguard', () => new THREE.TorusGeometry(0.02, 0.003, 6, 16, Math.PI)), m.polymer);
+  const guard = new THREE.Mesh(cached('pguard', () => torusGeometry(0.02, 0.003, 6, 16, Math.PI)), m.polymer);
   put(g, guard, 0, 0.018, -0.042, 0, Math.PI / 2, Math.PI);
   put(g, box(0.005, 0.02, 0.006, m.darkSteel), 0, 0.01, -0.035, 0.2);
   put(g, box(0.006, 0.008, 0.006, m.darkSteel), 0, 0.079, -0.16);
@@ -156,7 +174,7 @@ function rifle(m) {
   brake.rotation.z = Math.PI / 8;
   put(g, rbox(0.03, 0.095, 0.042, 0.01, furn), 0, -0.045, 0.06, -0.35);
   put(g, rbox(0.03, 0.075, 0.034, 0.01, furn), 0, -0.008, -0.27);
-  const guard = new THREE.Mesh(cached('rguard', () => new THREE.TorusGeometry(0.025, 0.003, 6, 16, Math.PI)), m.steel);
+  const guard = new THREE.Mesh(cached('rguard', () => torusGeometry(0.025, 0.003, 6, 16, Math.PI)), m.steel);
   put(g, guard, 0, -0.015, 0.02, 0, Math.PI / 2, Math.PI);
   put(g, box(0.005, 0.02, 0.006, m.darkSteel), 0, -0.01, 0.018, 0.2);
   put(g, cyl(0.014, 0.014, 0.18, m.darkSteel), 0, 0.035, 0.18);
@@ -192,10 +210,10 @@ function shotgun(m) {
   put(g, rbox(0.036, 0.1, 0.045, 0.014, m.wood), 0, -0.045, 0.1, -0.5);
   put(g, rbox(0.042, 0.075, 0.24, 0.018, m.wood), 0, -0.02, 0.28, 0.14);
   put(g, rbox(0.046, 0.085, 0.02, 0.008, m.rubber), 0, -0.036, 0.405, 0.14);
-  const guard = new THREE.Mesh(cached('sguard', () => new THREE.TorusGeometry(0.024, 0.003, 6, 16, Math.PI)), m.darkSteel);
+  const guard = new THREE.Mesh(cached('sguard', () => torusGeometry(0.024, 0.003, 6, 16, Math.PI)), m.darkSteel);
   put(g, guard, 0, -0.002, 0.045, 0, Math.PI / 2, Math.PI);
   put(g, box(0.005, 0.02, 0.006, m.darkSteel), 0, 0, 0.045, 0.2);
-  const shellMat = new THREE.MeshStandardMaterial({ color: 0xa81c1c, roughness: 0.6 });
+  const shellMat = m.shell || new THREE.MeshStandardMaterial({ color: 0xa81c1c, roughness: 0.6 });
   put(g, rbox(0.006, 0.03, 0.1, 0.002, m.polymer), 0.022, 0.03, -0.01);
   for (let i = 0; i < 4; i++) {
     const sh = put(g, cyl(0.009, 0.009, 0.03, shellMat, 10), 0.03, 0.03, -0.045 + i * 0.022, Math.PI / 2);
@@ -214,13 +232,13 @@ function sniper(m) {
   put(g, cyl(0.02, 0.02, 0.1, m.darkSteel, 10), 0, 0.045, -0.82);
   for (let i = 0; i < 4; i++) put(g, box(0.044, 0.006, 0.01, m.polymer), 0, 0.045, -0.79 - i * 0.02);
   const bolt = put(g, cyl(0.004, 0.004, 0.05, m.bright, 8), 0.035, 0.05, 0.03, 0, Math.PI / 2 - 0.3);
-  put(g, new THREE.Mesh(cached('knob', () => new THREE.SphereGeometry(0.009, 12, 10)), m.darkSteel), 0.06, 0.05, 0.022);
+  put(g, new THREE.Mesh(cached('knob', () => (MC ? gearBox(0.015, 0.015, 0.015) : new THREE.SphereGeometry(0.009, 12, 10))), m.darkSteel), 0.06, 0.05, 0.022);
   bolt.rotation.set(0, Math.PI / 2, -0.4);
   put(g, rbox(0.036, 0.095, 0.045, 0.012, body), 0, -0.05, 0.07, -0.3);
   put(g, rbox(0.044, 0.09, 0.26, 0.012, body), 0, 0.0, 0.26);
   put(g, rbox(0.04, 0.035, 0.12, 0.01, m.polymer), 0, 0.058, 0.23);
   put(g, rbox(0.046, 0.1, 0.02, 0.006, m.rubber), 0, 0, 0.395);
-  const guard = new THREE.Mesh(cached('snguard', () => new THREE.TorusGeometry(0.024, 0.003, 6, 16, Math.PI)), m.darkSteel);
+  const guard = new THREE.Mesh(cached('snguard', () => torusGeometry(0.024, 0.003, 6, 16, Math.PI)), m.darkSteel);
   put(g, guard, 0, -0.018, 0.015, 0, Math.PI / 2, Math.PI);
   const mag = new THREE.Group();
   put(mag, rbox(0.03, 0.05, 0.08, 0.004, m.darkSteel), 0, -0.035, -0.07);

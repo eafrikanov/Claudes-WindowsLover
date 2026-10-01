@@ -3,6 +3,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { SLOT_WEAPONS, buildWeaponModel, makeMuzzleFlash } from './weapons.js';
 import { toon } from './textures.js';
 import { addOutlines } from './outline.js';
+import { MC } from './style-mc.js';
+import { gearBox, mcArmMaterials } from './mc-gear.js';
 
 const GRIPS = {
   pistol: { right: [0, -0.035, 0.02], left: [-0.012, -0.055, 0.0], leftOnPump: false },
@@ -19,7 +21,7 @@ const GRIPS = {
 // Блочная рука в стиле персонажей: рукав-параллелепипед и кулак-кубик.
 function blockLimb(from, to, w, mat) {
   const dir = new THREE.Vector3().subVectors(to, from);
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, w, dir.length()), mat);
+  const m = new THREE.Mesh(MC ? gearBox(w, w, dir.length()) : new THREE.BoxGeometry(w, w, dir.length()), mat);
   m.position.copy(from).addScaledVector(dir, 0.5);
   m.lookAt(to);
   return m;
@@ -32,7 +34,7 @@ function buildArm(parent, handPos, elbowOffset, mats) {
   const g = new THREE.Group();
   g.add(blockLimb(wrist, elbow, 0.085, mats.sleeve));
   g.add(blockLimb(wrist, hand.clone().lerp(elbow, 0.3), 0.092, mats.cuff));
-  const fist = new THREE.Mesh(new RoundedBoxGeometry(0.075, 0.075, 0.085, 1, 0.008), mats.glove);
+  const fist = new THREE.Mesh(MC ? gearBox(0.075, 0.075, 0.085) : new RoundedBoxGeometry(0.075, 0.075, 0.085, 1, 0.008), mats.glove);
   fist.position.copy(hand);
   fist.lookAt(elbow);
   g.add(fist);
@@ -56,7 +58,7 @@ export class ViewModel {
     this.camera.add(this.root);
 
     const m = textures.weaponMaterials();
-    const armMats = {
+    const armMats = MC ? mcArmMaterials() : {
       sleeve: toon({ color: 0x5f8f3e }),
       cuff: toon({ color: 0x4a7330 }),
       glove: toon({ color: 0xffc79a }),

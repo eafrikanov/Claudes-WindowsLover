@@ -5,6 +5,8 @@ import { addOutlines } from './outline.js';
 import { makeSkin, partGeometry, outlineGeometry, HATS, PARTS, hashName } from './skins.js';
 import { Track } from './interp.js';
 import { GRAVITY } from './physics.js';
+import { MC } from './style-mc.js';
+import { mcWeaponMaterials } from './mc-gear.js';
 
 // Кубический персонаж в стиле Pixel Gun: голова-куб, коробка-торс, руки и ноги из двух коробок.
 // Рост 1.8: ноги 0–0.75, торс 0.75–1.35, голова 1.36–1.78. Модель смотрит в −Z.
@@ -109,7 +111,8 @@ function solveArm(arm, S, T, side) {
 
 export class Avatar {
   constructor(weaponMats, name, color, friendly) {
-    this.weaponMats = weaponMats;
+    // В стиле Minecraft оружие в руках персонажа читается теми же пикселями, но в 4 раза крупнее.
+    this.weaponMats = MC ? mcWeaponMaterials(0.25) : weaponMats;
     this.group = new THREE.Group();
     const skin = makeSkin(name, color);
     this.look = skin.look;

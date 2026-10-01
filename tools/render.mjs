@@ -1,7 +1,7 @@
 // Рендер превью карт: слева изометрия всей карты, справа вид игрока со спавна (оружие и противник).
 // Сервер не запускает — ждёт статический сервер на PORT (по умолчанию 8125), например:
 //   npx http-server -p 8125 -s .
-//   node tools/render.mjs [--maps port,ruins] [--variants current,noon,golden,overcast] [--out renders] [--quality high]
+//   node tools/render.mjs [--maps towers,fort] [--variants current,noon,golden,overcast] [--out renders] [--quality high]
 // Файлы: <out>/<map>-<index>-<variant>.png. Использует глобально установленный playwright.
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -24,7 +24,7 @@ function arg(name, def) {
 }
 
 const port = process.env.PORT || 8125;
-const maps = arg('maps', 'port,ruins').split(',');
+const maps = arg('maps', 'towers,roofs,construction,fort,treehouses').split(',');
 const wanted = arg('variants', VARIANTS.map((v) => v.id).join(',')).split(',');
 const out = path.resolve(arg('out', 'renders'));
 const quality = arg('quality', 'high');
@@ -90,14 +90,15 @@ for (const v of VARIANTS.filter((x) => wanted.includes(x.id))) {
     const top = await shoot(page, { width: LEFT, height: H }, () => {
       const { game } = window.__arena;
       const cam = game.camera;
-      const h = game.map.half;
+      const { hx, hz } = game.map.bounds;
       cam.fov = 40;
       cam.aspect = innerWidth / innerHeight;
       cam.updateProjectionMatrix();
       // Угол обзора выбирается сбоку от солнца: видны и освещённые грани, и длинные тени.
+      // Камера смотрит вдоль длинной стороны, чтобы вытянутая карта заполняла кадр.
       const az = (game.map.env.azimuth * Math.PI) / 180;
-      cam.position.set(Math.sign(-Math.cos(az)) * h * 1.55, h * 1.85, Math.sign(Math.sin(az)) * h * 1.55);
-      cam.lookAt(0, -h * 0.08, 0);
+      cam.position.set(Math.sign(-Math.cos(az)) * (hx + 25), hz * 1.35, Math.sign(Math.sin(az)) * hz * 1.05);
+      cam.lookAt(0, -2, 0);
       game.renderFrame(false);
       return game.canvas.toDataURL('image/png');
     });

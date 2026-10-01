@@ -2,7 +2,7 @@ import { Game, TEAM_COLORS, QUALITY, DRAW_DISTANCE } from './game.js';
 import { Sound } from './audio.js';
 import { Net, randomCode, normalizeCode } from './net.js';
 import { HostMatch, makeBots, STATE_RATE, RELAY_STATE_RATE } from './match.js';
-import { MAPS } from './map.js';
+import { MAPS, MAP_IDS } from './map.js';
 import { esc } from './hud.js';
 import { STYLE, STYLES, DEFAULT_STYLE } from './style-mc.js';
 
@@ -14,7 +14,7 @@ const DEFAULT_PREFS = {
   volume: 0.7, fxVolume: 1, uiVolume: 1,
 };
 const INPUT_MODES = { hold: 'Удерживать', toggle: 'Переключать' };
-const DEFAULT_ROOM = { map: 'port', mode: 'dm', scoreLimit: 20, timeLimit: 10, maxPlayers: 8, bots: 0, botSkill: 'normal' };
+const DEFAULT_ROOM = { map: MAP_IDS[0], mode: 'tdm', scoreLimit: 20, timeLimit: 10, maxPlayers: 4, bots: 0, botSkill: 'normal' };
 const MODE_NAMES = { dm: 'Все против всех', tdm: 'Команда на команду' };
 const SKILL_NAMES = { easy: 'Лёгкие', normal: 'Средние', hard: 'Сложные' };
 const KEEP_PARAMS = ['peerHost', 'peerPort', 'peerPath', 'peerSecure', 'nolock'];
@@ -175,7 +175,7 @@ $('opt-bots').addEventListener('input', (e) => {
 function openRoomForm(mode) {
   state.formMode = mode;
   if (mode === 'edit') state.roomForm = { ...state.lobby.settings };
-  else state.roomForm = { ...DEFAULT_ROOM, bots: mode === 'training' ? 5 : 0 };
+  else state.roomForm = { ...DEFAULT_ROOM, bots: mode === 'training' ? 3 : 0 };
   $('create-title').textContent = { create: 'Новая комната', training: 'Тренировка с ботами', edit: 'Настройки матча' }[mode];
   $('create-go').textContent = mode === 'edit' ? 'Сохранить' : mode === 'training' ? 'Начать' : 'Создать';
   $('create-error').textContent = '';
@@ -779,7 +779,7 @@ async function boot() {
   loading('Генерируем текстуры…');
   await new Promise((r) => setTimeout(r, 50));
   try {
-    await game.load('port');
+    await game.load(MAP_IDS[0]);
   } catch (err) {
     console.error(err);
     $('loading-text').textContent = 'Не удалось запустить WebGL. Обновите браузер или включите аппаратное ускорение.';

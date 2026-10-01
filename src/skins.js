@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { rng } from './textures.js';
 import { MC, pixelSkin } from './style-mc.js';
+import { initSkinLayout, mcPartGeometry, mcSkinTexture } from './mc-skin.js';
 
 // Кубический персонаж в духе Pixel Gun: каждая деталь — коробка, грани которой ссылаются
 // на прямоугольники в двух атласах (голова 512² и тело 512²). Раскладка атласов общая для всех
@@ -131,6 +132,11 @@ function skinnedBox(key, size, rects) {
 }
 
 export function partGeometry(part) {
+  if (MC) {
+    initSkinLayout(PARTS, HATS);
+    const size = part.startsWith('hat:') ? HATS[part.slice(4)].size : part === 'visor' ? HATS.cap.visor : PARTS[part];
+    return mcPartGeometry(part, size);
+  }
   if (part === 'head') return skinnedBox('head', PARTS.head, HEAD_RECTS.head);
   if (part.startsWith('hat:')) {
     const v = part.slice(4);
@@ -954,6 +960,12 @@ function canvas() {
 // цвет жилета — `color` (в командном режиме это цвет команды).
 export function makeSkin(name, color) {
   const L = makeLook(name, color);
+  if (MC) {
+    // Стиль Minecraft: один маленький пиксельный атлас на голову и тело.
+    initSkinLayout(PARTS, HATS);
+    const map = mcSkinTexture(L);
+    return { look: L, headMap: map, bodyMap: map };
+  }
   const head = canvas();
   const R = HEAD_RECTS;
   paintRect(head.ctx, R.head.front, L.skin, (ctx, w, h) => paintHeadFront(ctx, w, h, L));

@@ -1,19 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng } from './textures.js';
+import { MAP_LIST } from './maps/index.js';
 
-export const MAPS = {
-  port: {
-    name: 'Порт',
-    desc: 'Контейнерный терминал со складом и мостками. Много укрытий, средние дистанции.',
-    size: 64,
-  },
-  ruins: {
-    name: 'Руины',
-    desc: 'Разрушенный квартал на закате. Окна, этажи, дальние прострелы.',
-    size: 60,
-  },
-};
+// Карты 2 на 2: узкие и вытянутые вдоль Z, команды появляются на коротких торцах.
+// Каждая карта — модуль в src/maps/ с полями id, name, desc, size [ширина X, длина Z], seed, env, build(b).
+export const MAPS = Object.fromEntries(MAP_LIST.map((m) => [m.id, m]));
+export const MAP_IDS = MAP_LIST.map((m) => m.id);
 
 const CONTAINER_COLORS = {
   red: [0.55, 0.12, 0.08],
@@ -54,10 +47,14 @@ function worldUV(g, tile) {
 
 // Грани коробок, снаружи целиком закрытые соседними коробками, не нужны: их торцы сходятся
 // с видимыми гранями соседей в одной плоскости и проступают линиями на стыках.
+// Грань проверяется по точкам через 0.25 м (сравниваются только соседние коробки), чтобы узкий
+// просвет между накладками не приняли за закрытую грань.
 function cullHidden(solids) {
-  const inside = (p, self) => solids.some((s) => s !== self
-    && p[0] > s.min[0] && p[0] < s.max[0] && p[1] > s.min[1] && p[1] < s.max[1] && p[2] > s.min[2] && p[2] < s.max[2]);
+  const touch = (a, b) => a.min[0] <= b.max[0] + 0.02 && a.max[0] >= b.min[0] - 0.02 && a.min[1] <= b.max[1] + 0.02
+    && a.max[1] >= b.min[1] - 0.02 && a.min[2] <= b.max[2] + 0.02 && a.max[2] >= b.min[2] - 0.02;
   for (const box of solids) {
+    const near = solids.filter((s) => s !== box && touch(s, box));
+    const inside = (p) => near.some((s) => p[0] > s.min[0] && p[0] < s.max[0] && p[1] > s.min[1] && p[1] < s.max[1] && p[2] > s.min[2] && p[2] < s.max[2]);
     const index = box.g.index.array;
     const keep = [];
     for (let f = 0; f < 6; f++) {
@@ -65,14 +62,14 @@ function cullHidden(solids) {
       const [ua, va] = [0, 1, 2].filter((a) => a !== axis);
       const p = [0, 0, 0];
       p[axis] = f & 1 ? box.min[axis] - 0.01 : box.max[axis] + 0.01;
-      const nu = Math.min(8, Math.max(2, Math.ceil((box.max[ua] - box.min[ua]) / 0.4)));
-      const nv = Math.min(8, Math.max(2, Math.ceil((box.max[va] - box.min[va]) / 0.4)));
-      let hidden = true;
+      const nu = Math.min(64, Math.max(2, Math.ceil((box.max[ua] - box.min[ua]) / 0.25)));
+      const nv = Math.min(64, Math.max(2, Math.ceil((box.max[va] - box.min[va]) / 0.25)));
+      let hidden = near.length > 0;
       for (let i = 0; i < nu && hidden; i++) {
         for (let j = 0; j < nv && hidden; j++) {
           p[ua] = box.min[ua] + 0.02 + (box.max[ua] - box.min[ua] - 0.04) * (i + 0.5) / nu;
           p[va] = box.min[va] + 0.02 + (box.max[va] - box.min[va] - 0.04) * (j + 0.5) / nv;
-          hidden = inside(p, box);
+          hidden = inside(p);
         }
       }
       if (!hidden) keep.push(...index.slice(f * 6, f * 6 + 6));
@@ -92,6 +89,8 @@ class MapBuilder {
     this.extra = new THREE.Group();
     this.edges = [];
     this.solids = [];
+    this.visuals = [];
+    this.unreachable = [];
     this.rand = rng(seed);
   }
 
@@ -105,6 +104,8 @@ class MapBuilder {
   }
 
   // cx, cz — центр; y — низ.
+  // collide: false — только для деталей, лежащих на поверхности или внутри другого твёрдого тела
+  // (рамы контейнеров, разметка); tests/maps.test.js проверяет, что видимое совпадает с коллизией.
   box(cx, y, cz, w, h, d, mat, { variant, texScale = 2, collide = true, uvBox = false } = {}) {
     const offset = uvBox ? 0 : Math.floor(this.rand() * 8) / 8;
     const tile = uvBox ? 0 : this.textures.tile(mat);
@@ -116,7 +117,10 @@ class MapBuilder {
     this.material(mat, variant).geos.push(g);
     if (this.textures.pixel) this.solids.push({ g, min: [cx - w / 2, y, cz - d / 2], max: [cx + w / 2, y + h, cz + d / 2] });
     else this.edges.push(new THREE.EdgesGeometry(g));
-    if (collide) this.colliders.push({ min: [cx - w / 2, y, cz - d / 2], max: [cx + w / 2, y + h, cz + d / 2] });
+    const min = [cx - w / 2, y, cz - d / 2];
+    const max = [cx + w / 2, y + h, cz + d / 2];
+    this.visuals.push({ min, max, collide, mat });
+    if (collide) this.colliders.push({ min, max });
   }
 
   container(cx, y, cz, alongX, color) {
@@ -162,10 +166,14 @@ class MapBuilder {
       rim.position.set(cx, y + ry, cz);
       this.extra.add(rim);
     }
-    this.colliders.push({ min: [cx - 0.42, y, cz - 0.42], max: [cx + 0.42, y + 1.2, cz + 0.42] });
+    const min = [cx - 0.42, y, cz - 0.42];
+    const max = [cx + 0.42, y + 1.2, cz + 0.42];
+    this.visuals.push({ min, max, collide: true, mat: 'barrel' });
+    this.colliders.push({ min, max });
   }
 
   // Стена вдоль X (axis='x') или Z с проёмами {a, b, bottom, top} в локальных координатах длины.
+  // Проёмы могут перекрываться по длине (окна двух этажей друг над другом).
   wall(axis, from, to, at, y, height, thick, mat, openings = [], opts = {}) {
     const len = to - from;
     const place = (a, b, y0, y1) => {
@@ -174,29 +182,57 @@ class MapBuilder {
       if (axis === 'x') this.box(c, y + y0, at, b - a, y1 - y0, thick, mat, opts);
       else this.box(at, y + y0, c, thick, y1 - y0, b - a, mat, opts);
     };
-    const ops = [...openings].sort((p, q) => p.a - q.a);
-    let cur = 0;
-    for (const o of ops) {
-      place(cur, o.a, 0, height);
-      place(o.a, o.b, 0, o.bottom);
-      place(o.a, o.b, o.top, height);
-      cur = o.b;
+    const cuts = [...new Set([0, len, ...openings.flatMap((o) => [o.a, o.b])])].filter((v) => v >= 0 && v <= len).sort((p, q) => p - q);
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const [a, b] = [cuts[i], cuts[i + 1]];
+      const holes = openings.filter((o) => o.a <= a && o.b >= b).sort((p, q) => p.bottom - q.bottom);
+      let cur = 0;
+      for (const o of holes) {
+        place(a, b, cur, Math.min(o.bottom, height));
+        cur = Math.max(cur, o.top);
+      }
+      place(a, b, cur, height);
     }
-    place(cur, len, 0, height);
   }
 
-  stairs(x, z, dir, width, height, steps, mat = 'diamondPlate') {
+  // Лестница сплошными ступенями от y0 вверх на height; (x, z) — начало, dir — куда подниматься.
+  // Ступень не выше STEP_HEIGHT, иначе по ней не пройти шагом.
+  stairs(x, z, dir, width, height, steps, mat = 'diamondPlate', y0 = 0) {
     const run = 0.45;
     const rise = height / steps;
+    const [dx, dz] = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] }[dir];
     for (let i = 0; i < steps; i++) {
       const h = rise * (i + 1);
       const off = run * i + run / 2;
-      const [dx, dz] = { '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] }[dir];
       const cx = x + dx * off;
       const cz = z + dz * off;
-      if (dx) this.box(cx, 0, cz, run, h, width, mat, { texScale: 1.5 });
-      else this.box(cx, 0, cz, width, h, run, mat, { texScale: 1.5 });
+      if (dx) this.box(cx, y0, cz, run, h, width, mat, { texScale: 1.5 });
+      else this.box(cx, y0, cz, width, h, run, mat, { texScale: 1.5 });
     }
+  }
+
+  // Блочное дерево: ствол и крона из кубов листвы; крона твёрдая, на неё можно встать.
+  tree(x, z, { y = 0, trunk = 4, crown = 3.2, w = 0.9 } = {}) {
+    this.box(x, y, z, w, trunk, w, 'log');
+    const top = y + trunk;
+    this.box(x, top - 1, z, crown, 2, crown, 'leaves');
+    this.box(x, top + 1, z, crown * 0.6, 1, crown * 0.6, 'leaves');
+  }
+
+  // Область, куда игрок попадать не должен (верх кроны, стрела крана). Тест достижимости её пропускает.
+  noAccess(x0, z0, x1, z1, minY = 0) {
+    this.unreachable.push({ min: [Math.min(x0, x1), minY, Math.min(z0, z1)], max: [Math.max(x0, x1), Infinity, Math.max(z0, z1)] });
+  }
+
+  // Пол и периметр: внутренняя граница стен совпадает с размером карты, стены стоят снаружи.
+  arena(w, d, { ground = 'sand', wall = 'brick', height = 5, thick = 1, groundScale = 4 } = {}) {
+    const hx = w / 2;
+    const hz = d / 2;
+    this.box(0, -1, 0, w + thick * 2, 1, d + thick * 2, ground, { texScale: groundScale });
+    this.box(0, 0, -hz - thick / 2, w + thick * 2, height, thick, wall);
+    this.box(0, 0, hz + thick / 2, w + thick * 2, height, thick, wall);
+    this.box(-hx - thick / 2, 0, 0, thick, height, d, wall);
+    this.box(hx + thick / 2, 0, 0, thick, height, d, wall);
   }
 
   pickup(x, y, z) {
@@ -227,178 +263,32 @@ class MapBuilder {
   }
 }
 
-function buildPort(b) {
-  const S = 32;
-  b.box(0, -1, 0, S * 2, 1, S * 2, 'asphalt', { texScale: 4 });
-  b.wall('x', -S, S, -S, 0, 5, 1, 'concrete');
-  b.wall('x', -S, S, S, 0, 5, 1, 'concrete');
-  b.wall('z', -S, S, -S, 0, 5, 1, 'concrete');
-  b.wall('z', -S, S, S, 0, 5, 1, 'concrete');
+// Разметка без мешей и текстур: для тестов в Node.
+const LAYOUT_TEXTURES = { get: () => null, tile: () => 0, pixel: false };
 
-  // Склад в центре с проходами и мостками по периметру.
-  const W = 10;
-  const door = (a) => ({ a, b: a + 3, bottom: 0, top: 3.2 });
-  const win = (a) => ({ a, b: a + 2, bottom: 1.3, top: 2.4 });
-  b.wall('x', -W, W, -W, 0, 7, 0.5, 'concrete', [door(8.5), win(2), win(15.5)]);
-  b.wall('x', -W, W, W, 0, 7, 0.5, 'concrete', [door(8.5), win(2), win(15.5)]);
-  b.wall('z', -W + 0.25, W - 0.25, -W, 0, 7, 0.5, 'concrete', [door(3), win(12)]);
-  b.wall('z', -W + 0.25, W - 0.25, W, 0, 7, 0.5, 'concrete', [door(13.5), win(4)]);
-  b.box(0, -0.01, 0, W * 2 - 0.6, 0.02, W * 2 - 0.6, 'diamondPlate', { collide: false, texScale: 2 });
-  // Мостик вдоль северной стены и лестница к нему.
-  b.box(0, 3, -W + 1.45, W * 2 - 1, 0.25, 2.4, 'diamondPlate', { texScale: 1.5 });
-  b.box(-8.3, 3.25, -W + 2.6, 2.4, 1, 0.1, 'hazard', { texScale: 1 });
-  b.box(2.3, 3.25, -W + 2.6, 14.4, 1, 0.1, 'hazard', { texScale: 1 });
-  b.stairs(-6, -W + 2.65 + 8 * 0.45, '-z', 2, 3.25, 8);
-  b.crate(4, 0, 3, 1.4);
-  b.crate(5.3, 0, 3.4, 1.1);
-  b.crate(4.4, 1.4, 3.1, 1.1);
-  b.crate(-5, 0, 5, 1.4);
-  b.box(0, 0, 6, 5, 1.1, 0.8, 'hazard', { texScale: 1 });
-  b.barrel(6.5, 0, -2, 'blue');
-  b.barrel(7.3, 0, -2.6, 'blue');
-  b.pickup(0, 0, 0);
-
-  // Ряды контейнеров.
-  const colors = ['red', 'blue', 'green', 'orange', 'gray'];
-  const c = (i) => colors[i % colors.length];
-  let k = 0;
-  for (const x of [-22, -16]) {
-    b.container(x, 0, -20, false, c(k++));
-    b.container(x, 0, 20, false, c(k++));
-  }
-  b.container(-22, 2.6, -20, false, c(k++));
-  b.container(22, 0, 16, false, c(k++));
-  b.container(22, 2.6, 16, false, c(k++));
-  b.container(16, 0, 16, false, c(k++));
-  b.container(22, 0, -18, false, c(k++));
-  b.container(16, 0, -22, false, c(k++));
-  b.container(-18, 0, 0, true, c(k++));
-  b.container(-18, 0, 5, true, c(k++));
-  b.container(-18, 2.6, 2.5, true, 'gray');
-  b.container(18, 0, 0, true, c(k++));
-  b.container(18, 0, -5, true, c(k++));
-  b.container(0, 0, 22, true, 'red');
-  b.container(0, 0, -22, true, 'blue');
-  b.container(-8, 0, -26, true, 'green');
-  b.container(8, 0, 27, true, 'orange');
-  // Ступени-ящики на верх контейнеров.
-  b.crate(-13.8, 0, 2.5, 1.3);
-  b.crate(-13.8, 0, 3.8, 1.3);
-  b.crate(-12.5, 0, 3.8, 0.9);
-  b.crate(18.2, 0, 13.5, 1.2);
-  b.crate(18.2, 1.2, 13.5, 1);
-
-  // Бетонные блоки и ящики как укрытия.
-  const covers = [[-8, 14], [9, -14], [-23, -12], [23, 12], [-4, -15], [5, 15], [-27, 26], [27, -27]];
-  for (const [x, z] of covers) b.box(x, 0, z, 2.4, 1.1, 0.8, 'concrete', { texScale: 1.5 });
-  const crates = [[-11, 12], [12, -11], [-26, 14], [26, -12], [-12, -27], [12, 26], [-28, -28], [28, 28], [-28, 28], [28, -20]];
-  for (const [x, z] of crates) {
-    b.crate(x, 0, z, 1.3);
-    if (b.rand() > 0.4) b.crate(x + 0.9, 0, z + 1.1, 1);
-  }
-  for (const [x, z] of [[-10, -12], [10, 12], [-25, 0], [25, 0]]) b.barrel(x, 0, z, b.rand() > 0.5 ? 'red' : 'orange');
-
-  b.pickup(-25, 0, 20);
-  b.pickup(25, 0, -20);
-  b.pickup(-18, 2.6, 5);
-  b.pickup(16, 2.6, 16);
-
-  for (let i = 0; i < 4; i++) {
-    b.spawn(-28, 0, -24 + i * 16, 0, -Math.PI / 2);
-    b.spawn(28, 0, -24 + i * 16, 1, Math.PI / 2);
-  }
-  b.spawn(-6, 0, -28, 0, Math.PI);
-  b.spawn(6, 0, 28, 1, 0);
+function runBuilder(id, textures) {
+  const def = MAPS[id] || MAP_LIST[0];
+  const b = new MapBuilder(textures, def.seed);
+  def.build(b);
+  const [w, d] = def.size;
+  return { def, b, bounds: { hx: w / 2, hz: d / 2 } };
 }
 
-function buildRuins(b) {
-  const S = 30;
-  b.box(0, -1, 0, S * 2, 1, S * 2, 'dirt', { texScale: 5 });
-  b.wall('x', -S, S, -S, 0, 4.5, 1, 'brick');
-  b.wall('x', -S, S, S, 0, 4.5, 1, 'brick');
-  b.wall('z', -S, S, -S, 0, 4.5, 1, 'brick');
-  b.wall('z', -S, S, S, 0, 4.5, 1, 'brick');
-
-  const win = (a, w = 1.4) => ({ a, b: a + w, bottom: 1.1, top: 2.3 });
-  const door = (a) => ({ a, b: a + 1.6, bottom: 0, top: 2.4 });
-
-  // Двухэтажный дом в центре.
-  const H = 3.2;
-  b.wall('x', -7, 7, -5, 0, H * 2, 0.4, 'plaster', [door(6.2), win(2), win(10.5), { a: 2, b: 3.4, bottom: H + 1, top: H + 2.2 }, { a: 10.5, b: 11.9, bottom: H + 1, top: H + 2.2 }]);
-  b.wall('x', -7, 7, 5, 0, H * 2 - 1.5, 0.4, 'plaster', [door(3), win(9), { a: 6, b: 7.5, bottom: H + 1, top: H + 2.2 }]);
-  b.wall('z', -4.8, 4.8, -7, 0, H * 2, 0.4, 'brick', [win(3.4), { a: 3.4, b: 4.8, bottom: H + 1, top: H + 2.2 }]);
-  b.wall('z', -4.8, 4.8, 7, 0, H + 1.2, 0.4, 'brick', [door(4)]);
-  b.box(-2.5, H, 0, 9, 0.3, 9.6, 'concrete', { texScale: 2 });
-  b.stairs(2 + 8 * 0.45, -3.5, '-x', 1.6, H, 8, 'concrete');
-  b.pickup(-3, H + 0.3, 0);
-  b.crate(-5, 0, 2.5, 1.2);
-  b.crate(4.5, 0, 3, 1.1);
-
-  // Разрушенные коробки зданий по углам.
-  const ruin = (cx, cz, w, d, h, mat, seedOff) => {
-    const r = rng(seedOff);
-    const hs = () => h * (0.45 + r() * 0.55);
-    b.wall('x', cx - w / 2, cx + w / 2, cz - d / 2, 0, hs(), 0.4, mat, [win(w * 0.2), door(w * 0.55)]);
-    b.wall('x', cx - w / 2, cx + w / 2, cz + d / 2, 0, hs(), 0.4, mat, [win(w * 0.6)]);
-    b.wall('z', cz - d / 2 + 0.2, cz + d / 2 - 0.2, cx - w / 2, 0, hs(), 0.4, mat, [door(d * 0.35)]);
-    b.wall('z', cz - d / 2 + 0.2, cz + d / 2 - 0.2, cx + w / 2, 0, hs(), 0.4, mat, [win(d * 0.25)]);
-  };
-  ruin(-19, -19, 10, 8, 4.5, 'brick', 11);
-  ruin(19, 19, 10, 8, 4.5, 'brick', 12);
-  ruin(19, -19, 8, 10, 4, 'plaster', 13);
-  ruin(-19, 19, 8, 10, 4, 'plaster', 14);
-
-  // Обломки, низкие стены, ящики.
-  const rubble = [[-12, 0], [12, 0], [0, -14], [0, 14], [-24, 0], [24, 0], [-10, -24], [10, 24], [-8, 20], [8, -20]];
-  for (const [x, z] of rubble) {
-    const along = b.rand() > 0.5;
-    b.box(x, 0, z, along ? 3.5 : 0.6, 0.9 + b.rand() * 0.6, along ? 0.6 : 3.5, 'brick', { texScale: 2 });
-  }
-  const crates = [[-13, 8], [13, -8], [-4, -20], [4, 20], [-26, -12], [26, 12], [-15, 25], [15, -25]];
-  for (const [x, z] of crates) {
-    b.crate(x, 0, z, 1.25);
-    if (b.rand() > 0.5) b.crate(x, 1.25, z, 0.9);
-  }
-  for (const [x, z] of [[-9, 11], [9, -11], [-22, 8], [22, -8]]) b.barrel(x, 0, z, 'green');
-
-  b.pickup(-19, 0, -19);
-  b.pickup(19, 0, 19);
-  b.pickup(-19, 0, 19);
-  b.pickup(19, 0, -19);
-
-  for (let i = 0; i < 4; i++) {
-    b.spawn(-26, 0, -18 + i * 12, 0, -Math.PI / 2);
-    b.spawn(26, 0, -18 + i * 12, 1, Math.PI / 2);
-  }
-  b.spawn(0, 0, -26, 0, Math.PI);
-  b.spawn(0, 0, 26, 1, 0);
+export function mapLayout(id) {
+  const { def, b, bounds } = runBuilder(id, LAYOUT_TEXTURES);
+  return { id: def.id, colliders: b.colliders, visuals: b.visuals, spawns: b.spawns, pickups: b.pickups, unreachable: b.unreachable, bounds };
 }
-
-const ENV = {
-  port: {
-    elevation: 45, azimuth: 150,
-    skyTop: 0x2f86ea, skyHorizon: 0xcdeeff, skyBottom: 0xe8f6ff, clouds: 0xffffff,
-    sun: 0xfff6e6, sunIntensity: 2.1, hemiSky: 0xd6ecff, hemiGround: 0xa89878, hemiIntensity: 1.3,
-    fog: 0xcdeeff, fogDensity: 0.0045,
-  },
-  ruins: {
-    elevation: 20, azimuth: 250,
-    skyTop: 0x4a63c9, skyHorizon: 0xffc796, skyBottom: 0xffe2c4, clouds: 0xffe4d0,
-    sun: 0xffd2a0, sunIntensity: 2.2, hemiSky: 0xffe0c0, hemiGround: 0x9a7456, hemiIntensity: 1.2,
-    fog: 0xf5caa0, fogDensity: 0.006,
-  },
-};
 
 export function buildMap(id, textures) {
-  const b = new MapBuilder(textures, id === 'port' ? 1234 : 5678);
-  (id === 'ruins' ? buildRuins : buildPort)(b);
+  const { def, b, bounds } = runBuilder(id, textures);
   return {
-    id,
+    id: def.id,
     group: b.build(),
     colliders: b.colliders,
     spawns: b.spawns,
     pickups: b.pickups,
-    env: ENV[id],
-    half: MAPS[id].size / 2,
+    env: def.env,
+    bounds,
+    half: Math.max(bounds.hx, bounds.hz),
   };
 }

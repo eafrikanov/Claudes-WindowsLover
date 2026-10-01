@@ -132,7 +132,7 @@ try {
     const cols = game.map.colliders;
     const hit = (x, z) => cols.some((b) => x + 0.45 > b.min[0] && x - 0.45 < b.max[0] && 1.85 > b.min[1] && 0.05 < b.max[1] && z + 0.45 > b.min[2] && z - 0.45 < b.max[2]);
     let best = null;
-    for (const n of window.__arena.state.match.nav) {
+    for (const n of window.__arena.state.match.nav.nodes.filter((p) => p.y === 0 && p.h >= 1.8 && p.inside)) {
       for (let a = 0; a < 16; a++) {
         const yaw = (a / 16) * Math.PI * 2;
         const dx = -Math.sin(yaw);

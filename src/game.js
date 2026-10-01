@@ -12,6 +12,7 @@ import { Hud, esc } from './hud.js';
 import { addOutlines } from './outline.js';
 import { RESPAWN_DELAY, STATE_RATE } from './match.js';
 import { MC, MC_QUALITY, McPost, mcEnv, mcSky, fitShadow, setupRenderer } from './style-mc.js';
+import { mcMedkitBox } from './mc-gear.js';
 
 export const QUALITY = {
   low: { label: 'Низкое', pixel: 0.75, shadows: 0, tex: 256 },
@@ -41,7 +42,22 @@ function randomCone(dir, spread, out) {
   return out.copy(dir).addScaledVector(a, Math.cos(u) * r).addScaledVector(b, Math.sin(u) * r).normalize();
 }
 
-function medkit() {
+export function medkit() {
+  const g = MC ? mcMedkitBox() : medkitBox();
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.45, 0.6, 32),
+    new THREE.MeshBasicMaterial({ color: 0x40ff80, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  const root = new THREE.Group();
+  root.add(g, ring);
+  addOutlines(g, 0.012);
+  root.userData.box = g;
+  root.userData.ring = ring;
+  return root;
+}
+
+function medkitBox() {
   const g = new THREE.Group();
   const white = toon({ color: 0xf7f7f2 });
   const red = toon({ color: 0xff2a2a, emissive: 0x900000, emissiveIntensity: 0.6 });
@@ -57,17 +73,7 @@ function medkit() {
     const s = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, d * 0.9, 0.345), red);
     g.add(s);
   }
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.45, 0.6, 32),
-    new THREE.MeshBasicMaterial({ color: 0x40ff80, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  const root = new THREE.Group();
-  root.add(g, ring);
-  addOutlines(g, 0.012);
-  root.userData.box = g;
-  root.userData.ring = ring;
-  return root;
+  return g;
 }
 
 // Небо: градиент от горизонта к зениту, солнце-диск и пухлые облака.

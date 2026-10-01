@@ -189,8 +189,11 @@ input[type=range]::-moz-range-thumb {
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
   background: var(--green); border: 3px solid var(--ink); font-size: 16px; text-shadow: var(--outline-s);
 }
-.card.port { background: linear-gradient(180deg, #62b6ff 0 45%, #e04a33 45% 58%, #3d82e0 58% 70%, #7ee05a 70% 76%, #5c6477 76%); }
-.card.ruins { background: linear-gradient(180deg, #ffb070 0 42%, #e0703f 42% 62%, #f3dfb2 62% 70%, #dcb872 70%); }
+.card.towers { background: linear-gradient(180deg, #62b6ff 0 40%, #b8bcc2 40% 56%, #f2c230 56% 60%, #c9744a 60% 72%, #dcb872 72%); }
+.card.roofs { background: linear-gradient(180deg, #62b6ff 0 42%, #efe2c4 42% 50%, #e0703f 50% 66%, #b98a5a 66% 70%, #5c6477 70%); }
+.card.construction { background: linear-gradient(180deg, #62b6ff 0 40%, #f2c230 40% 46%, #e04a33 46% 58%, #3d82e0 58% 68%, #dcb872 68%); }
+.card.fort { background: linear-gradient(180deg, #62b6ff 0 40%, #e8e2d4 40% 52%, #c9744a 52% 68%, #7ee05a 68% 72%, #dcb872 72%); }
+.card.treehouses { background: linear-gradient(180deg, #62b6ff 0 30%, #4f9a35 30% 50%, #a86a35 50% 66%, #7ee05a 66% 72%, #dcb872 72%); }
 
 /* ——— Экраны меню ——— */
 #ui { position: fixed; inset: 0; pointer-events: none; }

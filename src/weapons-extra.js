@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { rbox, box, cyl, put, cached } from './weapons.js';
 import { toon } from './textures.js';
+import { MC } from './style-mc.js';
+import { gearBox, gearGeometry } from './mc-gear.js';
 
 // Дополнительные материалы создаются один раз на модуль.
 let extra = null;
-function xm() {
+function xm(m) {
+  if (m?.extra) return m.extra; // стиль Minecraft: пиксельные материалы приходят в наборе
   if (!extra) {
     extra = {
       white: toon({ color: 0xf1f4f8 }),
@@ -22,17 +25,23 @@ function xm() {
 }
 
 function sphere(r, mat, ws = 14, hs = 10) {
-  return new THREE.Mesh(cached(`s${r},${ws},${hs}`, () => new THREE.SphereGeometry(r, ws, hs)), mat);
+  return new THREE.Mesh(cached(`s${r},${ws},${hs}`, () => (MC ? gearBox(r * 1.7, r * 1.7, r * 1.7) : new THREE.SphereGeometry(r, ws, hs))), mat);
 }
 
 // Тор в плоскости XY (кольцо смотрит вдоль Z).
 function torus(r, tube, mat, arc = Math.PI * 2, seg = 24) {
-  return new THREE.Mesh(cached(`t${r},${tube},${arc},${seg}`, () => new THREE.TorusGeometry(r, tube, 8, seg, arc)), mat);
+  const make = () => (MC
+    ? gearGeometry(new THREE.TorusGeometry(r, tube * 1.4, 4, Math.max(3, Math.round(arc / (Math.PI / 4))), arc))
+    : new THREE.TorusGeometry(r, tube, 8, seg, arc));
+  return new THREE.Mesh(cached(`t${r},${tube},${arc},${seg}`, make), mat);
 }
 
 // Тело вращения: профиль [r, t], t растёт к носу, ось смотрит в -Z.
 function lathe(key, pts, mat, seg = 20) {
-  const g = cached(key, () => new THREE.LatheGeometry(pts.map(([r, t]) => new THREE.Vector2(r, t)), seg).rotateX(-Math.PI / 2));
+  const g = cached(key, () => {
+    const geo = new THREE.LatheGeometry(pts.map(([r, t]) => new THREE.Vector2(r, t)), MC ? 8 : seg, MC ? Math.PI / 8 : 0).rotateX(-Math.PI / 2);
+    return MC ? gearGeometry(geo) : geo;
+  });
   return new THREE.Mesh(g, mat);
 }
 
@@ -46,10 +55,12 @@ const WARHEAD = [
   [0, 0], [0.019, 0], [0.021, 0.03], [0.03, 0.06], [0.046, 0.09], [0.052, 0.11],
   [0.052, 0.165], [0.046, 0.2], [0.034, 0.235], [0.021, 0.262], [0.014, 0.275], [0, 0.276],
 ];
+// Ступенчатый профиль для стиля Minecraft: меньше колец — крупнее «блоки».
+const WARHEAD_MC = [[0, 0], [0.02, 0], [0.02, 0.04], [0.036, 0.07], [0.052, 0.1], [0.052, 0.17], [0.036, 0.215], [0.02, 0.255], [0.012, 0.276], [0, 0.276]];
 function warhead(m) {
-  const x = xm();
+  const x = xm(m);
   const g = new THREE.Group();
-  put(g, lathe('warhead', WARHEAD, x.warhead, 22), 0, 0, 0);
+  put(g, lathe('warhead', MC ? WARHEAD_MC : WARHEAD, x.warhead, 22), 0, 0, 0);
   put(g, cyl(0.0535, 0.0535, 0.014, m.brass, 22), 0, 0, -0.125);
   put(g, cyl(0.0535, 0.0535, 0.006, m.rubber, 22), 0, 0, -0.152);
   put(g, cyl(0.014, 0.009, 0.03, m.steel, 14), 0, 0, -0.288);
@@ -64,7 +75,7 @@ export const rpg = (m) => {
   // Труба: передняя часть, деревянный теплозащитный кожух, задняя часть и раструб.
   put(g, cyl(0.03, 0.03, 0.62, m.darkSteel), 0, AX, -0.29);
   put(g, cyl(0.036, 0.036, 0.04, m.steel), 0, AX, -0.58);
-  put(g, cyl(0.032, 0.032, 0.004, xm().bore), 0, AX, -0.6);
+  put(g, cyl(0.032, 0.032, 0.004, xm(m).bore), 0, AX, -0.6);
   put(g, cyl(0.044, 0.044, 0.3, m.wood, 22), 0, AX, -0.12);
   for (const z of [-0.272, -0.12, 0.032]) put(g, cyl(0.047, 0.047, 0.014, m.steel, 22), 0, AX, z);
   put(g, cyl(0.03, 0.03, 0.21, m.darkSteel), 0, AX, 0.135);
@@ -72,7 +83,7 @@ export const rpg = (m) => {
   put(g, cyl(0.044, 0.044, 0.01, m.steel, 22), 0, AX, 0.205);
   put(g, cyl(0.064, 0.031, 0.15, m.darkSteel, 22), 0, AX, 0.315);
   put(g, cyl(0.068, 0.068, 0.014, m.steel, 22), 0, AX, 0.392);
-  put(g, cyl(0.056, 0.056, 0.004, xm().bore, 22), 0, AX, 0.4);
+  put(g, cyl(0.056, 0.056, 0.004, xm(m).bore, 22), 0, AX, 0.4);
   // Пистолетная рукоять со скобой.
   put(g, box(0.024, 0.03, 0.07, m.darkSteel), 0, 0.048, 0.0);
   put(g, rbox(0.034, 0.105, 0.048, 0.013, m.polymer), 0, -0.012, 0.03, -0.3);
@@ -112,7 +123,7 @@ export const rpg = (m) => {
 };
 
 export const minigun = (m) => {
-  const x = xm();
+  const x = xm(m);
   const g = new THREE.Group();
   const AX = 0.045;
   // Вращающийся блок стволов.
@@ -189,7 +200,7 @@ export const minigun = (m) => {
 };
 
 export const laser = (m) => {
-  const x = xm();
+  const x = xm(m);
   const g = new THREE.Group();
   const AX = 0.045;
   // Ствольная коробка и кожух.
@@ -255,9 +266,9 @@ function bladeGeometry() {
     s.lineTo(0.008, -0.01);
     s.lineTo(0, -0.01);
     s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, { depth: 0.005, bevelEnabled: false, curveSegments: 10 });
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.005, bevelEnabled: false, curveSegments: MC ? 2 : 10 });
     g.translate(0, 0, -0.0025).rotateY(Math.PI / 2);
-    return g;
+    return MC ? gearGeometry(g) : g;
   });
 }
 
@@ -270,9 +281,9 @@ function edgeGeometry() {
     s.quadraticCurveTo(0.15, -0.007, 0.1, -0.008);
     s.lineTo(0.018, -0.007);
     s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, { depth: 0.0064, bevelEnabled: false, curveSegments: 10 });
+    const g = new THREE.ExtrudeGeometry(s, { depth: 0.0064, bevelEnabled: false, curveSegments: MC ? 2 : 10 });
     g.translate(0, 0, -0.0032).rotateY(Math.PI / 2);
-    return g;
+    return MC ? gearGeometry(g) : g;
   });
 }
 
@@ -298,42 +309,50 @@ export const knife = (m) => {
 };
 
 export const grenade = (m) => {
-  const x = xm();
+  const x = xm(m);
   const g = new THREE.Group();
   const A = 0.031, B = 0.037, CY = -0.014;
-  const pts = [];
-  for (let i = 0; i <= 12; i++) {
-    const t = -Math.PI / 2 + (i / 12) * Math.PI;
-    pts.push(new THREE.Vector2(Math.max(0.0001, Math.cos(t) * A), Math.sin(t) * B));
-  }
-  put(g, new THREE.Mesh(cached('grenBody', () => new THREE.LatheGeometry(pts, 18)), x.oliveDark), 0, CY, 0);
-  // Насечки «ананаса».
-  for (let r = 0; r < 5; r++) {
-    const y = -0.026 + r * 0.013;
-    const R = A * Math.sqrt(Math.max(0, 1 - (y / B) ** 2));
-    const phi = Math.atan2(y / (B * B), R / (A * A));
-    const w = Math.max(0.008, R * 0.62);
-    for (let j = 0; j < 8; j++) {
-      const a = (j * Math.PI) / 4 + (r % 2) * 0.0;
-      const tile = put(g, rbox(w, 0.0105, 0.007, 0.0025, m.olive), Math.sin(a) * R, CY + y, Math.cos(a) * R);
-      tile.rotation.order = 'YXZ';
-      tile.rotation.set(-phi, a, 0);
+  if (MC && x.pineapple) {
+    // Блочный «ананас»: кубик с насечками в текстуре, ступенчатые торцы.
+    put(g, box(0.06, 0.066, 0.06, x.pineapple), 0, CY, 0);
+    put(g, box(0.046, 0.008, 0.046, x.oliveDark), 0, CY + 0.037, 0);
+    put(g, box(0.046, 0.008, 0.046, x.oliveDark), 0, CY - 0.037, 0);
+  } else {
+    const pts = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = -Math.PI / 2 + (i / 12) * Math.PI;
+      pts.push(new THREE.Vector2(Math.max(0.0001, Math.cos(t) * A), Math.sin(t) * B));
+    }
+    put(g, new THREE.Mesh(cached('grenBody', () => new THREE.LatheGeometry(pts, 18)), x.oliveDark), 0, CY, 0);
+    // Насечки «ананаса».
+    for (let r = 0; r < 5; r++) {
+      const y = -0.026 + r * 0.013;
+      const R = A * Math.sqrt(Math.max(0, 1 - (y / B) ** 2));
+      const phi = Math.atan2(y / (B * B), R / (A * A));
+      const w = Math.max(0.008, R * 0.62);
+      for (let j = 0; j < 8; j++) {
+        const a = (j * Math.PI) / 4 + (r % 2) * 0.0;
+        const tile = put(g, rbox(w, 0.0105, 0.007, 0.0025, m.olive), Math.sin(a) * R, CY + y, Math.cos(a) * R);
+        tile.rotation.order = 'YXZ';
+        tile.rotation.set(-phi, a, 0);
+      }
     }
   }
   // Запал, рычаг и кольцо чеки.
   put(g, cyl(0.014, 0.014, 0.01, m.darkSteel, 16), 0, CY + B + 0.002, 0, Math.PI / 2);
   put(g, cyl(0.011, 0.011, 0.014, m.steel, 16), 0, CY + B + 0.013, 0, Math.PI / 2);
   put(g, cyl(0.008, 0.008, 0.008, m.bright, 14), 0, CY + B + 0.024, 0, Math.PI / 2);
-  put(g, rbox(0.03, 0.005, 0.011, 0.002, m.steel), 0.01, CY + B + 0.022, 0);
-  put(g, rbox(0.005, 0.05, 0.009, 0.002, m.steel), 0.028, CY + B - 0.004, 0, 0, 0, 0.24);
-  put(g, rbox(0.005, 0.014, 0.009, 0.002, m.steel), 0.033, CY + B - 0.032, 0, 0, 0, -0.12);
+  const LX = MC && x.pineapple ? 0.008 : 0; // у кубического корпуса рычаг выносится наружу
+  put(g, rbox(0.03 + LX, 0.005, 0.011, 0.002, m.steel), 0.01 + LX / 2, CY + B + 0.022, 0);
+  put(g, rbox(0.005, 0.05, 0.009, 0.002, m.steel), 0.028 + LX, CY + B - 0.004, 0, 0, 0, 0.24);
+  put(g, rbox(0.005, 0.014, 0.009, 0.002, m.steel), 0.033 + LX, CY + B - 0.032, 0, 0, 0, -0.12);
   put(g, cyl(0.002, 0.002, 0.03, m.brass, 6), -0.012, CY + B + 0.012, 0, 0, Math.PI / 2);
   put(g, torus(0.011, 0.0022, m.brass, Math.PI * 2, 18), -0.034, CY + B + 0.012, 0, 0, Math.PI / 2, 0);
   return g;
 };
 
 export const rocketModel = (m) => {
-  const x = xm();
+  const x = xm(m);
   const g = new THREE.Group();
   const head = warhead(m);
   put(g, head, 0, 0, 0.05);
