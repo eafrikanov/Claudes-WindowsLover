@@ -729,7 +729,7 @@ export class Game {
     const cos = Math.cos(me.yaw);
     const wx = -sin * fz + cos * fx;
     const wz = -cos * fz - sin * fx;
-    let speed = me.crouching ? 2.2 : me.sprinting ? 7.6 : 5;
+    let speed = me.crouching ? 1.76 : me.sprinting ? 6.08 : 4;
     if (aiming) speed *= 0.75;
     if (def.moveMul) speed *= def.spinup ? (me.spin > 0 ? def.moveMul : 1) : def.moveMul;
     const accel = me.onGround ? 25 : 12;
