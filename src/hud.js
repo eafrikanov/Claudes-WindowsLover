@@ -1,4 +1,4 @@
-import { WEAPONS } from './weapons.js';
+import { WEAPONS, SLOT_WEAPONS } from './weapons.js';
 import { ICONS, WEAPON_ICONS } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +18,9 @@ export class Hud {
     };
     for (const el of document.querySelectorAll('[data-icon]')) el.innerHTML = ICONS[el.dataset.icon];
     this.el.wicon = $('weapon-icon');
-    this.el.slots.innerHTML = WEAPONS.map((w, i) => `<div class="slot" data-i="${i}" title="${w.name}"><span class="key">${w.key}</span><span class="wicon">${WEAPON_ICONS[w.id]}</span></div>`).join('');
+    $('nade-icon').innerHTML = WEAPON_ICONS.grenade;
+    this.el.nades = $('nade-count');
+    this.el.slots.innerHTML = SLOT_WEAPONS.map((w, i) => `<div class="slot" data-i="${i}" title="${w.name}"><span class="key">${w.key}</span><span class="wicon">${WEAPON_ICONS[w.id]}</span></div>`).join('');
     this.hitT = 0;
     this.toastT = 0;
     this.indicators = [];
@@ -43,9 +45,9 @@ export class Hud {
       this.el.wicon.dataset.id = w.id;
       this.el.wicon.innerHTML = WEAPON_ICONS[w.id];
     }
-    this.el.ammo.textContent = ammo;
-    this.el.ammoMax.textContent = w.mag;
-    this.el.ammo.classList.toggle('low', ammo <= Math.ceil(w.mag * 0.25));
+    this.el.ammo.textContent = w.mag ? ammo : '∞';
+    this.el.ammoMax.textContent = w.mag || '∞';
+    this.el.ammo.classList.toggle('low', !!w.mag && ammo <= Math.ceil(w.mag * 0.25));
     for (const s of this.el.slots.children) s.classList.toggle('active', Number(s.dataset.i) === i);
   }
 
@@ -114,6 +116,11 @@ export class Hud {
     this.el.death.classList.toggle('show', show);
     if (by !== undefined) this.el.deathBy.innerHTML = by;
     if (left !== undefined) this.el.deathTimer.textContent = left > 0 ? `Возрождение через ${Math.ceil(left)}…` : 'Возрождение…';
+  }
+
+  grenades(n) {
+    this.el.nades.textContent = n;
+    this.el.nades.parentElement.classList.toggle('empty', n <= 0);
   }
 
   clickHint(v) {

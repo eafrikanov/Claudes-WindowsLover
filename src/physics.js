@@ -2,8 +2,8 @@ export const PLAYER_RADIUS = 0.38;
 export const STAND_HEIGHT = 1.8;
 export const CROUCH_HEIGHT = 1.25;
 export const STEP_HEIGHT = 0.6;
-export const GRAVITY = 18;
-export const JUMP_SPEED = 8.5;
+export const GRAVITY = 20;
+export const JUMP_SPEED = 9.6;
 
 const EPS = 1e-4;
 

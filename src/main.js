@@ -338,6 +338,7 @@ function hostOnMessage(id, msg) {
     case 'shot': m?.onShot(id, msg); break;
     case 'hit': m?.onHit(id, msg); break;
     case 'pick': m?.onPick(id, msg.i); break;
+    case 'boom': m?.onBoom(id, msg); break;
     default:
   }
 }

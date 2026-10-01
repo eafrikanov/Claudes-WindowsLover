@@ -1,7 +1,7 @@
 import { WEAPONS, WEAPON_INDEX } from './weapons.js';
 import { moveBody, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
 
-export const RESPAWN_DELAY = 3.5;
+export const RESPAWN_DELAY = 2;
 const PICKUP_RESPAWN = 20;
 const PICKUP_HEAL = 50;
 const STATE_RATE = 1 / 20;
@@ -12,7 +12,7 @@ const BOT_SKILL = {
   normal: { reaction: 0.55, acc: 0.38, head: 0.14, turn: 5, fireMul: 1.35 },
   hard: { reaction: 0.3, acc: 0.55, head: 0.22, turn: 7, fireMul: 1.1 },
 };
-const PREFERRED_RANGE = { pistol: 12, rifle: 16, shotgun: 5, sniper: 30 };
+const PREFERRED_RANGE = { pistol: 12, rifle: 16, shotgun: 5, sniper: 30, minigun: 14, laser: 18 };
 
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -66,8 +66,8 @@ export class HostMatch {
   }
 
   botWeapon() {
-    const r = Math.random();
-    return r < 0.45 ? WEAPON_INDEX.rifle : r < 0.65 ? WEAPON_INDEX.shotgun : r < 0.85 ? WEAPON_INDEX.pistol : WEAPON_INDEX.sniper;
+    const pool = ['rifle', 'rifle', 'shotgun', 'pistol', 'sniper', 'minigun', 'laser'];
+    return WEAPON_INDEX[pool[Math.floor(Math.random() * pool.length)]];
   }
 
   buildNav() {
@@ -158,7 +158,19 @@ export class HostMatch {
   onShot(id, msg) {
     const p = this.players.get(id);
     if (!p || !p.alive) return;
-    this.emit({ t: 'shot', id, w: msg.w, e: msg.e }, id);
+    const out = { t: 'shot', id, w: msg.w };
+    if (Array.isArray(msg.e)) out.e = msg.e;
+    if (typeof msg.pid === 'string' && Array.isArray(msg.o) && Array.isArray(msg.v)) {
+      out.pid = msg.pid.slice(0, 80);
+      out.o = msg.o;
+      out.v = msg.v;
+    }
+    this.emit(out, id);
+  }
+
+  onBoom(id, msg) {
+    if (!this.players.has(id) || !Array.isArray(msg.p)) return;
+    this.emit({ t: 'boom', id, pid: String(msg.pid).slice(0, 80), w: msg.w, p: msg.p, n: Array.isArray(msg.n) ? msg.n : [0, 1, 0] }, id);
   }
 
   onHit(id, msg) {
@@ -168,13 +180,23 @@ export class HostMatch {
     const def = WEAPONS[msg.w];
     if (!def) return;
     const max = def.damage * def.head * def.pellets;
-    this.damage(a, v, Math.min(max, Math.max(0, msg.d)), !!msg.h, msg.w);
+    let kb = null;
+    if (Array.isArray(msg.kb) && msg.kb.length === 3 && msg.kb.every(Number.isFinite)) {
+      const len = Math.hypot(...msg.kb);
+      kb = len > 20 ? msg.kb.map((c) => c * (20 / len)) : msg.kb;
+    }
+    this.damage(a, v, Math.min(max, Math.max(0, msg.d)), !!msg.h, msg.w, kb);
   }
 
-  damage(a, v, amount, head, w) {
+  damage(a, v, amount, head, w, kb = null) {
     if (!v.alive || !this.enemies(a, v) || this.over) return;
     v.hp = Math.max(0, v.hp - amount);
-    this.emit({ t: 'hp', id: v.id, hp: Math.round(v.hp), by: a.id, from: [r2(a.pos.x), r2(a.pos.z)], h: head });
+    const hp = { t: 'hp', id: v.id, hp: Math.round(v.hp), by: a.id, from: [r2(a.pos.x), r2(a.pos.z)], h: head };
+    if (kb) {
+      hp.kb = kb.map(r2);
+      if (v.bot) { v.vel.x += kb[0]; v.vel.y += kb[1]; v.vel.z += kb[2]; }
+    }
+    this.emit(hp);
     if (v.bot && !v.brain.target) { v.brain.target = a.id; v.brain.seenAt = this.time + this.skill.reaction * 0.5; }
     if (v.hp > 0) return;
     v.alive = false;
@@ -376,7 +398,7 @@ export class HostMatch {
   botFire(b, o, dist, def) {
     const br = b.brain;
     const sk = this.skill;
-    br.nextShot = this.time + def.fireRate * sk.fireMul * (def.auto ? 1 : 1.3);
+    br.nextShot = this.time + Math.max(0.1, def.fireRate * sk.fireMul * (def.auto ? 1 : 1.3));
     br.ammo--;
     if (br.ammo <= 0) br.reloadUntil = this.time + def.reload;
     const moving = Math.hypot(o.vel?.x || 0, o.vel?.z || 0) > 1 ? 0.85 : 1;

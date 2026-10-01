@@ -87,6 +87,43 @@ export class Effects {
       return m;
     });
     this.shellIdx = 0;
+
+    this.boomLight = new THREE.PointLight(0xffa040, 0, 18, 2);
+    scene.add(this.boomLight);
+    this.booms = [];
+    const scorchMat = new THREE.MeshBasicMaterial({ map: holeTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, opacity: 0.85 });
+    this.scorches = Array.from({ length: 10 }, () => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 2.8), scorchMat);
+      m.visible = false;
+      scene.add(m);
+      return m;
+    });
+    this.scorchIdx = 0;
+
+    const puffGeo = new THREE.IcosahedronGeometry(1, 1);
+    this.puffs = Array.from({ length: 90 }, () => {
+      const m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: 0xd9d4cc, transparent: true, depthWrite: false }));
+      m.visible = false;
+      m.userData = { life: 0, max: 1, vel: new THREE.Vector3(), grow: 1, base: 0.2 };
+      scene.add(m);
+      return m;
+    });
+    this.puffIdx = 0;
+
+    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+    this.beams = Array.from({ length: 10 }, () => {
+      const g = new THREE.Group();
+      const outer = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0x35e8ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      outer.scale.set(0.045, 0.045, 1);
+      const inner = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }));
+      inner.scale.set(0.015, 0.015, 1);
+      g.add(outer, inner);
+      g.visible = false;
+      g.userData.life = 0;
+      scene.add(g);
+      return g;
+    });
+    this.beamIdx = 0;
   }
 
   tracer(from, to, color = 0xffd890) {
@@ -145,7 +182,113 @@ export class Effects {
     s.visible = true;
   }
 
+  puff(pos, { size = 0.3, grow = 2, life = 1.2, color = 0xd9d4cc, vel = null, opacity = 0.85 } = {}) {
+    const m = this.puffs[this.puffIdx++ % this.puffs.length];
+    const u = m.userData;
+    m.position.copy(pos);
+    m.material.color.set(color);
+    m.material.opacity = opacity;
+    u.opacity = opacity;
+    u.life = u.max = life * (0.8 + Math.random() * 0.4);
+    u.base = size;
+    u.grow = grow;
+    u.vel.copy(vel || new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.5 + Math.random() * 0.5, (Math.random() - 0.5) * 0.4));
+    m.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+    m.scale.setScalar(size);
+    m.visible = true;
+  }
+
+  trail(pos) {
+    this.puff(pos, { size: 0.12, grow: 1.8, life: 0.9, color: 0xeeeae2, vel: new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.3, (Math.random() - 0.5) * 0.3) });
+    this.particles(pos, TMP.set(0, 0, 0), 1, new THREE.Color(1, 0.6, 0.15), 0.6, 2, 0, 0.12, 2);
+  }
+
+  beam(from, to) {
+    const b = this.beams[this.beamIdx++ % this.beams.length];
+    b.position.copy(from);
+    b.lookAt(to);
+    b.scale.set(1, 1, from.distanceTo(to));
+    b.userData.life = 0.14;
+    b.visible = true;
+    this.particles(to, TMP.set(0, 1, 0), 6, new THREE.Color(0.2, 0.9, 1), 3, 1.6, 4, 0.25, 1.6);
+  }
+
+  explosion(pos, normal, scale = 1) {
+    let e = this.booms.find((b) => !b.visible);
+    if (!e) {
+      e = new THREE.Group();
+      const sphere = new THREE.IcosahedronGeometry(1, 2);
+      const fire = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: 0xff8a1f, transparent: true, depthWrite: false }));
+      const core = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: 0xffef7a, transparent: true, depthWrite: false }));
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+      e.add(fire, core, ring);
+      e.userData = { fire, core, ring, t: 0, scale: 1 };
+      this.scene.add(e);
+      this.booms.push(e);
+    }
+    const n = TMP.set(normal[0], normal[1], normal[2]);
+    e.position.copy(pos).addScaledVector(n, 0.3 * scale);
+    e.userData.ring.quaternion.setFromUnitVectors(Z, n);
+    e.userData.t = 0;
+    e.userData.scale = scale;
+    e.visible = true;
+    for (let i = 0; i < 9; i++) {
+      const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).normalize().addScaledVector(n, 0.6);
+      this.puff(e.position.clone().addScaledVector(dir, 0.6 * scale), {
+        size: (0.5 + Math.random() * 0.5) * scale, grow: 2.2, life: 1.6 + Math.random() * 0.8,
+        color: Math.random() < 0.5 ? 0x8a8288 : 0x5e5862, vel: dir.multiplyScalar(2.2 * scale).setY(1.2 + Math.random()), opacity: 0.9,
+      });
+    }
+    this.particles(e.position, n, 40, new THREE.Color(1, 0.65, 0.2), 14 * scale, 2.2, 14, 0.7, 2.2);
+    this.particles(e.position, n, 16, new THREE.Color(1, 0.9, 0.5), 7 * scale, 2, 6, 0.4, 2.5);
+    const s = this.scorches[this.scorchIdx++ % this.scorches.length];
+    s.position.copy(pos).addScaledVector(n, 0.02);
+    s.quaternion.setFromUnitVectors(Z, n);
+    s.rotateZ(Math.random() * Math.PI);
+    s.scale.setScalar(scale);
+    s.visible = true;
+    this.boomLight.position.copy(e.position);
+    this.boomLight.intensity = 80 * scale;
+  }
+
   update(dt) {
+    for (const e of this.booms) {
+      if (!e.visible) continue;
+      const u = e.userData;
+      u.t += dt;
+      const t = u.t;
+      const s = u.scale;
+      const grow = 1 - Math.pow(1 - Math.min(1, t / 0.18), 3);
+      const fade = Math.max(0, 1 - Math.max(0, t - 0.12) / 0.45);
+      u.fire.scale.setScalar((0.4 + grow * 2.1) * s);
+      u.fire.material.opacity = fade;
+      u.core.scale.setScalar((0.3 + grow * 1.3) * s * Math.max(0.2, fade));
+      u.core.material.opacity = Math.min(1, fade * 1.4);
+      u.ring.scale.setScalar((0.5 + Math.min(1, t / 0.35) * 5.5) * s);
+      u.ring.material.opacity = Math.max(0, 0.9 - t / 0.35);
+      if (t > 0.7) e.visible = false;
+    }
+    if (this.boomLight.intensity > 0) this.boomLight.intensity = Math.max(0, this.boomLight.intensity - dt * 260);
+    for (const m of this.puffs) {
+      if (!m.visible) continue;
+      const u = m.userData;
+      u.life -= dt;
+      const k = Math.max(0, u.life / u.max);
+      m.position.addScaledVector(u.vel, dt);
+      u.vel.multiplyScalar(1 - dt * 1.5);
+      m.scale.setScalar(u.base * (1 + (1 - k) * u.grow));
+      m.material.opacity = u.opacity * Math.min(1, k * 1.6);
+      if (u.life <= 0) m.visible = false;
+    }
+    for (const b of this.beams) {
+      if (!b.visible) continue;
+      b.userData.life -= dt;
+      const k = Math.max(0, b.userData.life / 0.14);
+      b.children[0].material.opacity = k * 0.9;
+      b.children[1].material.opacity = k;
+      b.children[0].scale.x = b.children[0].scale.y = 0.045 * (0.5 + k * 0.5);
+      if (b.userData.life <= 0) b.visible = false;
+    }
     for (const m of this.tracers) {
       if (!m.visible) continue;
       m.userData.life -= dt;
@@ -187,5 +330,6 @@ export class Effects {
 
   clearDecals() {
     for (const h of this.holes) h.visible = false;
+    for (const s of this.scorches) s.visible = false;
   }
 }

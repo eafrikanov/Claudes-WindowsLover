@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import * as EXTRA from './weapons-extra.js';
 
 export const WEAPONS = [
   {
@@ -31,40 +32,80 @@ export const WEAPONS = [
     sound: { freq: 700, body: 45, decay: 0.5, gain: 0.9 },
     hip: [0.16, -0.2, -0.38], ads: [0, 0, -0.2],
   },
+  {
+    id: 'rpg', name: 'Бахалка', kind: 'Гранатомёт РПГ', key: '5', type: 'rocket',
+    damage: 120, head: 1, fireRate: 1.1, auto: false, mag: 1, reload: 1.7, pellets: 1,
+    spread: 0.004, moveSpread: 0, recoil: 0.14, kick: 0.14, range: 200, adsFov: 55,
+    radius: 5, speed: 34, knockback: 15,
+    sound: { freq: 300, body: 50, decay: 0.45, gain: 0.8 },
+    hip: [0.25, -0.2, -0.6], ads: [0, 0, -0.5],
+  },
+  {
+    id: 'minigun', name: 'Шквал', kind: 'Пулемёт', key: '6',
+    damage: 10, head: 1.5, fireRate: 0.05, auto: true, mag: 150, reload: 3, pellets: 1,
+    spread: 0.028, moveSpread: 0, recoil: 0.01, kick: 0.012, range: 160, adsFov: 62,
+    spinup: 0.45, moveMul: 0.8,
+    sound: { freq: 1200, body: 80, decay: 0.1, gain: 0.45 },
+    hip: [0.2, -0.22, -0.56], ads: [0, 0, -0.5],
+  },
+  {
+    id: 'laser', name: 'Луч', kind: 'Лазер', key: '7', type: 'beam',
+    damage: 21, head: 1.6, fireRate: 0.13, auto: true, mag: 36, reload: 1.8, pellets: 1,
+    spread: 0, moveSpread: 0, recoil: 0.012, kick: 0.015, range: 220, adsFov: 50,
+    sound: { freq: 2400, body: 900, decay: 0.12, gain: 0.4 },
+    hip: [0.14, -0.16, -0.38], ads: [0, 0, -0.3],
+  },
+  {
+    id: 'knife', name: 'Клинок', kind: 'Нож', key: '8', type: 'melee',
+    damage: 55, head: 1.3, fireRate: 0.42, auto: true, mag: 0, reload: 0, pellets: 1,
+    spread: 0, moveSpread: 0, recoil: 0, kick: 0, range: 2.7, adsFov: 78, noAds: true, moveMul: 1.12,
+    sound: { freq: 3000, body: 200, decay: 0.08, gain: 0.3 },
+    hip: [0.16, -0.14, -0.32], ads: [0, 0, -0.32], tilt: [0.5, 0.2, 0],
+  },
+  {
+    id: 'grenade', name: 'Граната', kind: 'Граната', key: 'G', type: 'throw', slot: false,
+    damage: 110, head: 1, fireRate: 0.8, auto: false, mag: 2, reload: 0, pellets: 1,
+    spread: 0, moveSpread: 0, recoil: 0, kick: 0, range: 0, adsFov: 78,
+    radius: 5.5, speed: 17, fuse: 2.2, knockback: 13,
+    sound: { freq: 300, body: 50, decay: 0.45, gain: 0.8 },
+    hip: [0, 0, 0], ads: [0, 0, 0],
+  },
 ];
+
+export const SLOT_WEAPONS = WEAPONS.filter((w) => w.slot !== false);
 
 export const WEAPON_INDEX = Object.fromEntries(WEAPONS.map((w, i) => [w.id, i]));
 
 const geoCache = new Map();
-function cached(key, make) {
+export function cached(key, make) {
   if (!geoCache.has(key)) geoCache.set(key, make());
   return geoCache.get(key);
 }
 
-function rbox(w, h, d, r, mat) {
+export function rbox(w, h, d, r, mat) {
   const rr = Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
   const g = cached(`rb${w},${h},${d},${rr}`, () => new RoundedBoxGeometry(w, h, d, 2, rr));
   return new THREE.Mesh(g, mat);
 }
 
-function box(w, h, d, mat) {
+export function box(w, h, d, mat) {
   return new THREE.Mesh(cached(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d)), mat);
 }
 
 // Цилиндр вдоль оси Z.
-function cyl(r1, r2, len, mat, seg = 20) {
+export function cyl(r1, r2, len, mat, seg = 20) {
   const g = cached(`c${r1},${r2},${len},${seg}`, () => new THREE.CylinderGeometry(r1, r2, len, seg).rotateX(Math.PI / 2));
   return new THREE.Mesh(g, mat);
 }
 
-function put(parent, mesh, x, y, z, rx = 0, ry = 0, rz = 0) {
+export function put(parent, mesh, x, y, z, rx = 0, ry = 0, rz = 0) {
   mesh.position.set(x, y, z);
   mesh.rotation.set(rx, ry, rz);
   parent.add(mesh);
   return mesh;
 }
 
-function rail(parent, mat, x, y, z, len, count) {
+export function rail(parent, mat, x, y, z, len, count) {
   put(parent, box(0.022, 0.006, len, mat), x, y, z);
   for (let i = 0; i < count; i++) put(parent, box(0.024, 0.004, 0.004, mat), x, y + 0.005, z - len / 2 + (i + 0.5) * (len / count));
 }
@@ -198,7 +239,7 @@ function sniper(m) {
   return { group: g, muzzle: new THREE.Vector3(0, 0.045, -0.87), sightY: scopeY, mag, bolt, eject: new THREE.Vector3(0.022, 0.05, 0) };
 }
 
-const BUILDERS = { pistol, rifle, shotgun, sniper };
+const BUILDERS = { pistol, rifle, shotgun, sniper, rpg: EXTRA.rpg, minigun: EXTRA.minigun, laser: EXTRA.laser, knife: EXTRA.knife };
 
 export function buildWeaponModel(id, mats) {
   return BUILDERS[id](mats);

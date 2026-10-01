@@ -5,8 +5,9 @@ import { buildMap } from './map.js';
 import { ViewModel } from './viewmodel.js';
 import { Avatar } from './avatar.js';
 import { Effects } from './effects.js';
-import { WEAPONS } from './weapons.js';
-import { moveBody, raycastWorld, rayPlayer, blocked, PLAYER_RADIUS, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
+import { WEAPONS, SLOT_WEAPONS, WEAPON_INDEX } from './weapons.js';
+import { Projectiles } from './projectiles.js';
+import { moveBody, raycastWorld, rayPlayer, blocked, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY, JUMP_SPEED } from './physics.js';
 import { Hud, esc } from './hud.js';
 import { addOutlines } from './outline.js';
 import { RESPAWN_DELAY } from './match.js';
@@ -20,6 +21,8 @@ export const QUALITY = {
 export const TEAM_COLORS = ['#3d82e0', '#e0493d'];
 const STATE_RATE = 1 / 20;
 const INTERP_DELAY = 0.1;
+const GRENADES = 2;
+const GRENADE = WEAPONS[WEAPON_INDEX.grenade];
 
 const V1 = new THREE.Vector3();
 const V2 = new THREE.Vector3();
@@ -191,7 +194,8 @@ export class Game {
       if (e.code === 'Tab') this.tabHeld = true;
       if (e.code === 'KeyR') this.startReload();
       if (e.code === 'KeyQ') this.selectWeapon(this.prevWeapon ?? 0);
-      const idx = WEAPONS.findIndex((w) => `Digit${w.key}` === e.code);
+      if (e.code === 'KeyG') this.throwGrenade();
+      const idx = SLOT_WEAPONS.findIndex((w) => `Digit${w.key}` === e.code);
       if (idx >= 0) this.selectWeapon(idx);
     });
     window.addEventListener('keyup', (e) => {
@@ -218,7 +222,7 @@ export class Game {
     });
     window.addEventListener('wheel', (e) => {
       if (!this.running || !this.locked || this.paused || !this.me) return;
-      const n = WEAPONS.length;
+      const n = SLOT_WEAPONS.length;
       this.selectWeapon((this.me.weapon + (e.deltaY > 0 ? 1 : -1) + n) % n);
     }, { passive: true });
     document.addEventListener('pointerlockchange', () => {
@@ -274,6 +278,8 @@ export class Game {
     this.pickupOn = map.pickups.map(() => true);
 
     this.effects = new Effects(scene);
+    this.projectiles = new Projectiles(scene, this.effects, this.textures.weaponMaterials());
+    this.projectiles.onExplode = (p, point, normal, direct) => this.onExplode(p, point, normal, direct);
     this.vm = new ViewModel(this.textures);
     this.vm.setLights(env);
     this.vm.resize(this.camera.aspect);
@@ -314,6 +320,7 @@ export class Game {
       yaw: 0, pitch: 0, punch: 0, onGround: false, height: STAND_HEIGHT, crouching: false,
       alive: false, hp: 100, weapon: 1, ammo: WEAPONS.map((w) => w.mag), nextFire: 0, reloadUntil: 0, reloadFor: -1,
       stepT: 0, stateT: 0, deathT: 0, killer: null, lastPick: 0, waiting: true,
+      grenades: GRENADES, nextThrow: 0, spin: 0, shake: 0, pidN: 0,
     };
     this.prevWeapon = 0;
     this.roster.clear();
@@ -328,6 +335,8 @@ export class Game {
     this.vm.current = this.me.weapon;
     this.vm.guns.forEach((g, i) => { g.holder.visible = i === this.me.weapon; });
     this.hud.weapon(this.me.weapon, this.me.ammo[this.me.weapon]);
+    this.hud.grenades(GRENADES);
+    this.projectiles.clear();
     this.hud.health(100);
     this.running = true;
     this.paused = false;
@@ -343,6 +352,7 @@ export class Game {
     this.hud.scope(false);
     this.hud.scoreboard(false);
     this.hud.death(false);
+    this.projectiles?.clear();
     for (const av of this.avatars.values()) {
       this.scene?.remove(av.group);
       av.dispose();
@@ -408,7 +418,8 @@ export class Game {
 
   selectWeapon(i) {
     const me = this.me;
-    if (!me || !me.alive || i === me.weapon || i < 0 || i >= WEAPONS.length) return;
+    if (!me || !me.alive || i === me.weapon || i < 0 || i >= SLOT_WEAPONS.length) return;
+    me.spin = 0;
     this.prevWeapon = me.weapon;
     me.weapon = i;
     me.reloadUntil = 0;
@@ -424,7 +435,7 @@ export class Game {
     const me = this.me;
     if (!me || !me.alive || me.reloadUntil > this.now) return;
     const def = WEAPONS[me.weapon];
-    if (me.ammo[me.weapon] >= def.mag) return;
+    if (!def.mag || me.ammo[me.weapon] >= def.mag) return;
     me.reloadUntil = this.now + def.reload;
     me.reloadFor = me.weapon;
     me.reloadStart = this.now;
@@ -454,11 +465,32 @@ export class Game {
         const def = WEAPONS[msg.w];
         if (!av || !def) break;
         const from = av.muzzleWorld(new THREE.Vector3());
+        if (msg.pid && msg.o && msg.v) {
+          this.projectiles.spawn({ pid: msg.pid, kind: def.type === 'rocket' ? 'rocket' : 'grenade', owner: msg.id, def, pos: new THREE.Vector3(...msg.o), vel: new THREE.Vector3(...msg.v), local: false });
+          if (def.type === 'rocket') this.sound.launch(from.x, from.z);
+          else this.sound.throwSound(from.x, from.z);
+          break;
+        }
+        if (!msg.e) break;
         const to = new THREE.Vector3(...msg.e);
-        this.effects.tracer(from, to);
-        this.sound.shot(def, from.x, from.z);
+        if (def.type === 'melee') {
+          this.sound.swish(from.x, from.z);
+          break;
+        }
+        if (def.type === 'beam') this.effects.beam(from, to);
+        else this.effects.tracer(from, to);
+        if (def.type === 'beam') this.sound.zap(from.x, from.z);
+        else this.sound.shot(def, from.x, from.z);
         const nearPlayer = this.me?.alive && to.distanceTo(V1.copy(this.me.pos).setY(this.me.pos.y + 1)) < 1.2;
-        if (!nearPlayer) this.effects.particles(to, V1.set(0, 1, 0), 4, new THREE.Color(1, 0.6, 0.2), 3, 1.5, 10, 0.2, 1.2);
+        if (!nearPlayer && def.type !== 'beam') this.effects.particles(to, V1.set(0, 1, 0), 4, new THREE.Color(1, 0.6, 0.2), 3, 1.5, 10, 0.2, 1.2);
+        break;
+      }
+      case 'boom': {
+        if (msg.id === this.localId) break;
+        const def = WEAPONS[msg.w];
+        if (!def) break;
+        this.projectiles.removeByPid(msg.pid);
+        this.boomFx(new THREE.Vector3(...msg.p), msg.n || [0, 1, 0], def);
         break;
       }
       case 'hp': {
@@ -476,6 +508,12 @@ export class Game {
           }
           me.hp = msg.hp;
           this.hud.health(me.hp);
+          if (msg.kb && me.alive) {
+            me.vel.x += msg.kb[0];
+            me.vel.y = Math.max(me.vel.y, 0) + msg.kb[1];
+            me.vel.z += msg.kb[2];
+            me.onGround = false;
+          }
         } else {
           this.avatars.get(msg.id)?.flashHit();
         }
@@ -522,6 +560,10 @@ export class Game {
           me.waiting = false;
           me.hp = 100;
           me.ammo = WEAPONS.map((w) => w.mag);
+          me.grenades = GRENADES;
+          me.spin = 0;
+          this.hud.grenades(GRENADES);
+          for (const g of this.vm.guns) if (g.model.rocket) g.model.rocket.visible = true;
           me.reloadUntil = 0;
           me.reloadFor = -1;
           this.camera.rotation.z = 0;
@@ -563,7 +605,7 @@ export class Game {
     const me = this.me;
     const now = this.now;
     const def = WEAPONS[me.weapon];
-    const aiming = this.aimHeld && me.alive && me.reloadUntil <= now;
+    const aiming = this.aimHeld && me.alive && me.reloadUntil <= now && !def.noAds;
     const zoom = aiming ? def.adsFov / this.prefs.fov : 1;
     const sens = this.prefs.sensitivity * 0.0022 * (aiming ? Math.max(0.25, zoom) : 1);
     me.yaw -= this.look.dx * sens;
@@ -616,9 +658,10 @@ export class Game {
     const cos = Math.cos(me.yaw);
     const wx = -sin * fz + cos * fx;
     const wz = -cos * fz - sin * fx;
-    let speed = wantCrouch ? 3 : sprint ? 8.5 : 6.2;
+    let speed = wantCrouch ? 3.6 : sprint ? 10 : 7.6;
     if (aiming) speed *= 0.75;
-    const accel = me.onGround ? 25 : 10;
+    if (def.moveMul) speed *= def.spinup ? (me.spin > 0 ? def.moveMul : 1) : def.moveMul;
+    const accel = me.onGround ? 25 : 12;
     me.vel.x += (wx * speed - me.vel.x) * Math.min(1, dt * accel);
     me.vel.z += (wz * speed - me.vel.z) * Math.min(1, dt * accel);
     if (input.has('Space') && me.onGround) {
@@ -647,6 +690,14 @@ export class Game {
     me.punch += (0 - me.punch) * Math.min(1, dt * 10);
     cam.position.set(me.pos.x, me.pos.y + me.height - 0.16, me.pos.z);
     cam.rotation.set(me.pitch + me.punch, me.yaw, 0);
+    if (me.shake > 0) {
+      const k = me.shake * me.shake;
+      cam.rotation.x += (Math.random() - 0.5) * k * 0.09;
+      cam.rotation.y += (Math.random() - 0.5) * k * 0.09;
+      cam.rotation.z = (Math.random() - 0.5) * k * 0.06;
+      cam.position.y += (Math.random() - 0.5) * k * 0.08;
+      me.shake = Math.max(0, me.shake - dt * 1.6);
+    }
 
     if (me.reloadFor >= 0 && now >= me.reloadUntil) {
       me.ammo[me.reloadFor] = WEAPONS[me.reloadFor].mag;
@@ -655,10 +706,15 @@ export class Game {
     }
     this.hud.reloadProgress(me.reloadFor >= 0 ? (now - me.reloadStart) / def.reload : -1);
 
-    if (this.fireHeld && !this.paused && (def.auto || this.triggerFresh)) {
+    if (def.spinup) {
+      const want = this.fireHeld && !this.paused && me.reloadFor < 0;
+      me.spin = want ? Math.min(1, me.spin + dt / def.spinup) : Math.max(0, me.spin - dt / 0.8);
+    }
+    this.vm.spin = def.spinup ? me.spin : 0;
+    if (this.fireHeld && !this.paused && (def.auto || this.triggerFresh) && (!def.spinup || me.spin >= 1)) {
       this.triggerFresh = false;
       if (now >= me.nextFire && me.reloadFor < 0 && this.vm.switchT === 0) {
-        if (me.ammo[me.weapon] > 0) this.shoot(def);
+        if (!def.mag || me.ammo[me.weapon] > 0) this.shoot(def);
         else { this.sound.empty(); me.nextFire = now + 0.25; this.startReload(); }
       }
     }
@@ -693,11 +749,22 @@ export class Game {
     return def.spread;
   }
 
+  aimTarget(origin, aimDir, range = 300) {
+    const wh = raycastWorld(this.map.colliders, [origin.x, origin.y, origin.z], [aimDir.x, aimDir.y, aimDir.z], range);
+    return origin.clone().addScaledVector(aimDir, wh ? wh.t : range);
+  }
+
+  newPid() {
+    return `${this.localId}:${++this.me.pidN}`;
+  }
+
   shoot(def) {
     const me = this.me;
     const now = this.now;
-    me.ammo[me.weapon]--;
+    if (def.mag) me.ammo[me.weapon]--;
     me.nextFire = now + def.fireRate;
+    if (def.type === 'rocket') return this.fireRocket(def);
+    if (def.type === 'melee') return this.melee(def);
     const aiming = this.aimHeld;
     const spread = this.currentSpread(def, aiming);
     const cam = this.camera;
@@ -739,7 +806,8 @@ export class Game {
       } else if (wh) {
         this.effects.impact(end, wh.normal);
       }
-      if (i < 3) this.effects.tracer(muzzle, end);
+      if (def.type === 'beam') this.effects.beam(muzzle, end);
+      else if (i < 3) this.effects.tracer(muzzle, end);
     }
     for (const [v, h] of hits) this.send({ t: 'hit', v, d: Math.round(h.d * 10) / 10, h: h.h, w: me.weapon });
     if (hits.size) {
@@ -751,16 +819,145 @@ export class Game {
     this.send({ t: 'shot', w: me.weapon, e: [r2(firstEnd.x), r2(firstEnd.y), r2(firstEnd.z)] });
 
     this.vm.fire();
-    this.sound.shot(def);
+    if (def.type === 'beam') this.sound.zap();
+    else this.sound.shot(def);
     if (def.id === 'shotgun') this.sound.pump(0.35);
     const right = V1.set(1, 0, 0).applyQuaternion(cam.quaternion);
     const up = V2.set(0, 1, 0).applyQuaternion(cam.quaternion);
-    if (def.id !== 'shotgun') this.effects.shell(muzzle.clone().addScaledVector(right, 0.05).addScaledVector(up, 0.02), right.clone(), up.clone());
+    if (def.id !== 'shotgun' && def.type !== 'beam') this.effects.shell(muzzle.clone().addScaledVector(right, 0.05).addScaledVector(up, 0.02), right.clone(), up.clone());
 
     const rk = def.recoil * (aiming ? 0.6 : 1) * (me.crouching ? 0.8 : 1);
     me.punch += rk * 0.6;
     this.hud.weapon(me.weapon, me.ammo[me.weapon]);
     if (me.ammo[me.weapon] === 0) setTimeout(() => { if (this.me === me && me.ammo[me.weapon] === 0) this.startReload(); }, 250);
+  }
+
+  fireRocket(def) {
+    const me = this.me;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const origin = cam.getWorldPosition(new THREE.Vector3());
+    const aimDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(me.pitch, me.yaw, 0, 'YXZ'));
+    const muzzle = cam.localToWorld(this.vm.muzzleInCamera(new THREE.Vector3()));
+    const target = this.aimTarget(origin, aimDir);
+    const dir = target.sub(muzzle).normalize();
+    if (dir.dot(aimDir) < 0.8) dir.copy(aimDir);
+    const vel = dir.multiplyScalar(def.speed);
+    const pid = this.newPid();
+    this.projectiles.spawn({ pid, kind: 'rocket', owner: this.localId, def, pos: muzzle, vel, local: true });
+    const r2 = (v) => Math.round(v * 100) / 100;
+    this.send({ t: 'shot', w: me.weapon, pid, o: muzzle.toArray().map(r2), v: vel.toArray().map(r2) });
+    this.vm.fire();
+    this.sound.launch();
+    for (let i = 0; i < 4; i++) this.effects.puff(muzzle.clone().addScaledVector(aimDir, -0.9 - i * 0.2), { size: 0.2, grow: 3, life: 0.8, vel: aimDir.clone().multiplyScalar(-2) });
+    me.punch += def.recoil;
+    me.shake = Math.max(me.shake, 0.35);
+    this.hud.weapon(me.weapon, me.ammo[me.weapon]);
+    if (me.ammo[me.weapon] === 0) setTimeout(() => { if (this.me === me && me.ammo[me.weapon] === 0) this.startReload(); }, 300);
+  }
+
+  melee(def) {
+    const me = this.me;
+    const cam = this.camera;
+    const origin = cam.getWorldPosition(new THREE.Vector3());
+    const o = [origin.x, origin.y, origin.z];
+    let best = null;
+    for (const off of [0, -0.18, 0.18]) {
+      const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(me.pitch, me.yaw + off, 0, 'YXZ'));
+      const d = [dir.x, dir.y, dir.z];
+      const wall = raycastWorld(this.map.colliders, o, d, def.range);
+      for (const [id, av] of this.avatars) {
+        if (av.dead || !av.group.visible) continue;
+        const p = this.roster.get(id);
+        if (p && this.isFriend(p)) continue;
+        const r = rayPlayer(o, d, av.group.position, av.crouch > 0.5 ? CROUCH_HEIGHT : STAND_HEIGHT);
+        if (r && r.t <= def.range && (!wall || r.t < wall.t) && (!best || r.t < best.t)) best = { id, t: r.t, head: r.head, dir };
+      }
+    }
+    this.vm.fire();
+    this.sound.swish();
+    const r2 = (v) => Math.round(v * 100) / 100;
+    if (best) {
+      const end = origin.clone().addScaledVector(best.dir, best.t);
+      this.effects.blood(end, best.dir);
+      const kb = best.dir.clone().setY(0.4).normalize().multiplyScalar(5);
+      this.send({ t: 'hit', v: best.id, d: def.damage * (best.head ? def.head : 1), h: best.head, w: me.weapon, kb: kb.toArray().map(r2) });
+      this.hud.hitmarker(best.head, false);
+      this.sound.hit(best.head);
+    }
+    this.send({ t: 'shot', w: me.weapon, e: origin.toArray().map(r2) });
+  }
+
+  throwGrenade() {
+    const me = this.me;
+    const now = this.now;
+    if (!this.running || this.paused || !me?.alive || me.grenades <= 0 || now < me.nextThrow) return;
+    me.grenades--;
+    me.nextThrow = now + GRENADE.fireRate;
+    this.hud.grenades(me.grenades);
+    const cam = this.camera;
+    const aimDir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(me.pitch, me.yaw, 0, 'YXZ'));
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+    const pos = cam.getWorldPosition(new THREE.Vector3()).addScaledVector(aimDir, 0.4).addScaledVector(right, 0.15);
+    const vel = aimDir.clone().multiplyScalar(GRENADE.speed).add(new THREE.Vector3(0, 3, 0)).addScaledVector(me.vel, 0.5);
+    if (blocked(this.map.colliders, pos.x - 0.05, pos.y - 0.05, pos.z - 0.05, 0.05, 0.1)) pos.copy(cam.position);
+    const pid = this.newPid();
+    this.projectiles.spawn({ pid, kind: 'grenade', owner: this.localId, def: GRENADE, pos, vel, local: true });
+    const r2 = (v) => Math.round(v * 100) / 100;
+    this.send({ t: 'shot', w: WEAPON_INDEX.grenade, pid, o: pos.toArray().map(r2), v: vel.toArray().map(r2) });
+    this.vm.throwGrenade();
+    this.sound.throwSound();
+  }
+
+  boomFx(point, normal, def) {
+    this.effects.explosion(point, normal, def.radius / 5);
+    this.sound.boom(point.x, point.z);
+    if (this.me?.alive) {
+      const d = point.distanceTo(this.me.pos);
+      this.me.shake = Math.max(this.me.shake, Math.max(0, 1 - d / 28) * 1.1);
+    }
+  }
+
+  // Урон по площади считает владелец снаряда и отправляет хосту, как обычные попадания.
+  onExplode(p, point, normal, direct) {
+    const def = p.def;
+    this.boomFx(point, normal, def);
+    if (!p.local || !this.me) return;
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const from = [point.x + normal[0] * 0.3, point.y + normal[1] * 0.3, point.z + normal[2] * 0.3];
+    let anyHit = false;
+    for (const [id, av] of this.avatars) {
+      if (av.dead || !av.group.visible) continue;
+      const pl = this.roster.get(id);
+      if (pl && this.isFriend(pl)) continue;
+      const c = av.group.position.clone().setY(av.group.position.y + 1);
+      const dist = c.distanceTo(point);
+      if (dist > def.radius && id !== direct) continue;
+      if (id !== direct && !lineOfSight(this.map.colliders, from, [c.x, c.y, c.z])) continue;
+      const k = id === direct ? 1 : Math.pow(Math.max(0, 1 - dist / def.radius), 0.6);
+      const dmg = Math.round(def.damage * k);
+      if (dmg <= 0) continue;
+      const kb = c.clone().sub(point).setY(0).normalize().setY(0.7).multiplyScalar(def.knockback * Math.max(0.4, k));
+      this.send({ t: 'hit', v: id, d: dmg, h: false, w: WEAPON_INDEX[def.id], kb: kb.toArray().map(r2) });
+      anyHit = true;
+    }
+    if (anyHit) {
+      this.hud.hitmarker(false, false);
+      this.sound.hit(false);
+    }
+    const me = this.me;
+    if (me.alive) {
+      const c = me.pos.clone().setY(me.pos.y + 0.9);
+      const dist = c.distanceTo(point);
+      if (dist < def.radius) {
+        const k = 1 - dist / def.radius;
+        const push = c.sub(point).normalize();
+        me.vel.addScaledVector(push, def.knockback * 0.5 * k);
+        me.vel.y = Math.max(me.vel.y, 0) + def.knockback * 0.3 * k;
+        me.onGround = false;
+      }
+    }
+    this.send({ t: 'boom', pid: p.pid, w: WEAPON_INDEX[def.id], p: point.toArray().map(r2), n: normal });
   }
 
   updatePickups(dt) {
@@ -782,13 +979,14 @@ export class Game {
     if (this.running) {
       if (this.onTick) this.onTick(dt);
       this.updateLocal(dt);
+      this.projectiles.update(dt, this.map.colliders, this.avatars);
       const rt = this.now - INTERP_DELAY;
       for (const av of this.avatars.values()) av.update(dt, rt);
       this.updatePickups(dt);
       const me = this.me;
       this.sound.listener = { x: me.pos.x, z: me.pos.z, yaw: me.yaw };
       this.vm.update(dt, {
-        aiming: this.aimHeld && me.alive && me.reloadFor < 0,
+        aiming: this.aimHeld && me.alive && me.reloadFor < 0 && !SLOT_WEAPONS[me.weapon].noAds,
         sprinting: this.keys.has('ShiftLeft') && this.keys.has('KeyW') && !this.fireHeld,
         speed: Math.hypot(me.vel.x, me.vel.z),
         onGround: me.onGround,

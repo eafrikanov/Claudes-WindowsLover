@@ -90,6 +90,52 @@ export class Sound {
     this.burst(dest, t + 0.02, { dur: s.decay * 2.5, freq: 600, gain: 0.15 });
   }
 
+  boom(x, z) {
+    if (!this.ctx) return;
+    const sp = this.spatial(x, z);
+    const near = Math.max(sp.gain, 0.25);
+    const dest = this.out(1.1 * near, sp.pan * 0.6);
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, { f0: 120, f1: 28, dur: 0.9, gain: 1 });
+    this.tone(dest, t, { f0: 60, f1: 22, dur: 1.4, gain: 0.8, type: 'triangle' });
+    this.burst(dest, t, { dur: 1.2, freq: 900 * near + 200, gain: 1 });
+    this.burst(dest, t, { dur: 0.25, freq: 3500, type: 'highpass', gain: 0.5 });
+    for (let i = 0; i < 6; i++) this.burst(dest, t + 0.08 + Math.random() * 0.5, { dur: 0.06, freq: 1500 + Math.random() * 2000, type: 'bandpass', q: 2, gain: 0.35 });
+  }
+
+  launch(x, z) {
+    if (!this.ctx) return;
+    const sp = this.spatial(x, z);
+    const dest = this.out(0.8 * sp.gain, sp.pan);
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, { f0: 90, f1: 40, dur: 0.3, gain: 0.9 });
+    this.burst(dest, t, { dur: 0.6, freq: 1800, type: 'bandpass', q: 0.8, gain: 1 });
+    this.burst(dest, t + 0.05, { dur: 0.9, freq: 500, gain: 0.5 });
+  }
+
+  zap(x, z) {
+    if (!this.ctx) return;
+    const sp = this.spatial(x, z);
+    const dest = this.out(0.25 * sp.gain, sp.pan);
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, { f0: 2200, f1: 300, dur: 0.14, type: 'sawtooth', gain: 0.5 });
+    this.tone(dest, t, { f0: 1100, f1: 160, dur: 0.12, type: 'square', gain: 0.25 });
+  }
+
+  swish(x, z) {
+    if (!this.ctx) return;
+    const sp = this.spatial(x, z);
+    this.burst(this.out(0.5 * sp.gain, sp.pan), this.ctx.currentTime, { dur: 0.16, freq: 2500, type: 'bandpass', q: 1.5 });
+  }
+
+  throwSound(x, z) {
+    if (!this.ctx) return;
+    const sp = this.spatial(x, z);
+    const dest = this.out(0.35 * sp.gain, sp.pan);
+    this.click(0.03, 3500, 0.3);
+    this.burst(dest, this.ctx.currentTime + 0.05, { dur: 0.2, freq: 1200, type: 'bandpass', q: 1 });
+  }
+
   click(dur = 0.02, freq = 3000, gain = 0.3, delay = 0) {
     if (!this.ctx) return;
     this.burst(this.out(gain, 0), this.ctx.currentTime + delay, { dur, freq, type: 'bandpass', q: 3 });

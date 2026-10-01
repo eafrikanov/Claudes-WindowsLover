@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { WEAPONS, buildWeaponModel, makeMuzzleFlash } from './weapons.js';
+import { SLOT_WEAPONS, buildWeaponModel, makeMuzzleFlash } from './weapons.js';
 import { toon } from './textures.js';
 import { addOutlines } from './outline.js';
 
@@ -9,37 +9,33 @@ const GRIPS = {
   rifle: { right: [0, -0.045, 0.065], left: [0, 0.005, -0.28], leftOnPump: false },
   shotgun: { right: [0, -0.04, 0.1], left: [0, 0.0, 0], leftOnPump: true },
   sniper: { right: [0, -0.045, 0.075], left: [0, -0.01, -0.3], leftOnPump: false },
+  rpg: { right: [0, -0.02, 0.03], left: [0, -0.01, -0.205], leftOnPump: false },
+  minigun: { right: [0, -0.045, 0.065], left: [0, -0.075, -0.13], leftOnPump: false },
+  laser: { right: [0, -0.045, 0.065], left: [0, 0.01, -0.27], leftOnPump: false },
+  knife: { right: [0, 0, 0.012], left: null, leftOnPump: false },
 };
 
-const UP = new THREE.Vector3(0, 1, 0);
 
-function limb(from, to, r1, r2, mat) {
+// Блочная рука в стиле персонажей: рукав-параллелепипед и кулак-кубик.
+function blockLimb(from, to, w, mat) {
   const dir = new THREE.Vector3().subVectors(to, from);
-  const len = dir.length();
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, len, 14), mat);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, w, dir.length()), mat);
   m.position.copy(from).addScaledVector(dir, 0.5);
-  m.quaternion.setFromUnitVectors(UP, dir.normalize());
+  m.lookAt(to);
   return m;
 }
 
-function buildArm(parent, handPos, elbowOffset, mats, left) {
+function buildArm(parent, handPos, elbowOffset, mats) {
   const hand = new THREE.Vector3(...handPos);
   const elbow = hand.clone().add(elbowOffset);
-  const wrist = hand.clone().lerp(elbow, 0.18);
+  const wrist = hand.clone().lerp(elbow, 0.2);
   const g = new THREE.Group();
-  g.add(limb(wrist, elbow, 0.03, 0.045, mats.sleeve));
-  const cuff = limb(wrist, hand.clone().lerp(elbow, 0.26), 0.033, 0.034, mats.glove);
-  g.add(cuff);
-  const palm = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.06, 0.075, 2, 0.015), mats.glove);
-  palm.position.copy(hand);
-  palm.lookAt(elbow);
-  g.add(palm);
-  const knuckles = new THREE.Mesh(new RoundedBoxGeometry(0.056, 0.03, 0.04, 2, 0.012), mats.glove);
-  knuckles.position.copy(hand).add(new THREE.Vector3(left ? 0.022 : -0.022, 0.0, -0.01));
-  g.add(knuckles);
-  const pad = new THREE.Mesh(new RoundedBoxGeometry(0.03, 0.015, 0.03, 2, 0.006), mats.pad);
-  pad.position.copy(hand).add(new THREE.Vector3(left ? -0.026 : 0.026, 0.012, 0.01));
-  g.add(pad);
+  g.add(blockLimb(wrist, elbow, 0.085, mats.sleeve));
+  g.add(blockLimb(wrist, hand.clone().lerp(elbow, 0.3), 0.092, mats.cuff));
+  const fist = new THREE.Mesh(new RoundedBoxGeometry(0.075, 0.075, 0.085, 1, 0.008), mats.glove);
+  fist.position.copy(hand);
+  fist.lookAt(elbow);
+  g.add(fist);
   parent.add(g);
   return g;
 }
@@ -62,18 +58,17 @@ export class ViewModel {
     const m = textures.weaponMaterials();
     const armMats = {
       sleeve: toon({ color: 0x5f8f3e }),
-      glove: toon({ color: 0x3a3440 }),
-      pad: toon({ color: 0xffb347 }),
+      cuff: toon({ color: 0x4a7330 }),
+      glove: toon({ color: 0xffc79a }),
     };
 
-    this.guns = WEAPONS.map((def) => {
+    this.guns = SLOT_WEAPONS.map((def) => {
       const model = buildWeaponModel(def.id, m);
       const holder = new THREE.Group();
       holder.add(model.group);
       const grip = GRIPS[def.id];
-      buildArm(holder, grip.right, new THREE.Vector3(0.1, -0.22, 0.4), armMats, false);
-      const leftParent = grip.leftOnPump ? model.pump : holder;
-      buildArm(leftParent, grip.left, new THREE.Vector3(-0.2, -0.2, 0.32), armMats, true);
+      buildArm(holder, grip.right, new THREE.Vector3(0.1, -0.22, 0.4), armMats);
+      if (grip.left) buildArm(grip.leftOnPump ? model.pump : holder, grip.left, new THREE.Vector3(-0.2, -0.2, 0.32), armMats);
       addOutlines(holder, 0.0022);
       const flash = makeMuzzleFlash();
       flash.position.copy(model.muzzle);
@@ -97,6 +92,10 @@ export class ViewModel {
     this.flashT = 0;
     this.pumpT = -1;
     this.sprint = 0;
+    this.spin = 0;
+    this.spinAngle = 0;
+    this.slashT = -1;
+    this.throwT = -1;
     this.guns[0].holder.visible = true;
   }
 
@@ -120,8 +119,17 @@ export class ViewModel {
     this.reloadT = -1;
   }
 
+  throwGrenade() {
+    this.throwT = 0;
+  }
+
   fire() {
     const g = this.guns[this.current];
+    if (g.def.type === 'melee') {
+      this.slashT = 0;
+      return;
+    }
+    if (g.model.rocket) g.model.rocket.visible = false;
     const k = g.def.kick * (1 - this.aim * 0.5);
     this.recoil.vz += k * 60;
     this.recoil.vrx += k * 55;
@@ -134,6 +142,8 @@ export class ViewModel {
   }
 
   reload(duration) {
+    const g = this.guns[this.current];
+    if (g.model.rocket) setTimeout(() => { g.model.rocket.visible = true; }, duration * 450);
     this.reloadT = 0;
     this.reloadDur = duration;
   }
@@ -237,6 +247,34 @@ export class ViewModel {
       if (g.model.pump) g.model.pump.position.z = g.pumpHome.z + k * 0.08;
       if (g.model.bolt) h.rotation.z += k * 0.12;
       if (t >= 1) this.pumpT = -1;
+    }
+
+    if (def.tilt) {
+      h.rotation.x += def.tilt[0];
+      h.rotation.y += def.tilt[1];
+      h.rotation.z += def.tilt[2];
+    }
+    if (this.slashT >= 0) {
+      this.slashT += dt / 0.32;
+      const t = this.slashT;
+      const k = t < 0.35 ? smoothstep(t / 0.35) : 1 - smoothstep((t - 0.35) / 0.65);
+      h.rotation.z += k * 1.1;
+      h.rotation.y += k * 0.6;
+      h.position.x -= k * 0.14;
+      h.position.z -= k * 0.12;
+      if (t >= 1) this.slashT = -1;
+    }
+    if (this.throwT >= 0) {
+      this.throwT += dt / 0.45;
+      const k = Math.sin(Math.min(1, this.throwT) * Math.PI);
+      h.position.y -= k * 0.18;
+      h.rotation.x -= k * 0.5;
+      if (this.throwT >= 1) this.throwT = -1;
+    }
+    if (g.model.barrels) {
+      this.spinAngle += this.spin * dt * 40;
+      g.model.barrels.rotation.z = this.spinAngle;
+      h.position.x += (Math.random() - 0.5) * 0.004 * this.spin;
     }
 
     if (this.flashT > 0) {
