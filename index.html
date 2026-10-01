@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gun Arena</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22none%22 stroke=%22%23ff8a1f%22 stroke-width=%223%22/%3E%3Cpath d=%22M16 2v10M16 20v10M2 16h10M20 16h10%22 stroke=%22%23ff8a1f%22 stroke-width=%223%22/%3E%3C/svg%3E">
+  <link rel="preload" href="vendor/fonts/russo-one-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+  <script src="vendor/peerjs.min.js"></script>
+  <script src="vendor/mqtt.min.js"></script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
+    <div id="hitmarker"></div>
+    <div id="scope"><div class="lens"></div></div>
+    <div id="vignette"></div>
+    <div id="dmg-indicators"></div>
+    <div id="topbar"><div id="score-top"></div><div id="timer-wrap"><span class="ico" data-icon="clock"></span><span id="timer">0:00</span></div></div>
+    <div id="killfeed"></div>
+    <div id="toast"></div>
+    <div id="pickup-hint">Здоровье полное</div>
+    <div id="click-hint">Кликните, чтобы играть</div>
+    <div id="reload-bar"><span>ПЕРЕЗАРЯДКА</span><div class="track"><div id="reload-fill"></div></div></div>
+    <div id="bottom-left" class="plate">
+      <div class="hp-heart ico" data-icon="heart"></div>
+      <div class="hp-body">
+        <span id="hp-text">100</span>
+        <div class="hp-bar"><div id="hp-fill"></div><div class="hp-ticks"></div></div>
+      </div>
+    </div>
+    <div id="bottom-right">
+      <div class="plate ammo-plate">
+        <div id="weapon-icon" class="wicon"></div>
+        <div class="ammo-col">
+          <div class="ammo"><span class="ico bullet" data-icon="bullet"></span><span id="ammo-cur">0</span><span class="sep">/</span><span id="ammo-max">0</span></div>
+          <div id="weapon-name"></div>
+        </div>
+      </div>
+      <div class="slots-row"><div class="nade plate"><span id="nade-icon" class="wicon"></span><span id="nade-count">2</span><span class="key">G</span></div><div id="slots"></div></div>
+    </div>
+    <div id="death">
+      <div class="ribbon"><span class="ico" data-icon="skull"></span><span class="title">ВЫ ПОГИБЛИ</span></div>
+      <div id="death-by"></div>
+      <div id="death-timer"></div>
+    </div>
+    <div id="fps" class="hidden"></div>
+    <div id="scoreboard"><div class="board-title">ТАБЛИЦА СЧЁТА</div><table><thead><tr><th>Игрок</th><th>Убийства</th><th>Смерти</th></tr></thead><tbody id="scoreboard-body"></tbody></table></div>
+  </div>
+
+  <div id="ui">
+    <section id="screen-menu" class="screen">
+      <div class="brand">
+        <div class="logo"><span class="w1">GUN</span><span class="w2">ARENA</span></div>
+        <div class="tagline">Сетевой шутер для игры с друзьями прямо в браузере</div>
+      </div>
+      <div class="panel menu-panel">
+        <label class="field">
+          <span>Ваш ник</span>
+          <input id="nick" maxlength="16" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="field">
+          <span>Цвет бронежилета</span>
+          <div id="colors" class="colors"></div>
+        </div>
+        <button class="btn primary" data-go="create">Создать комнату</button>
+        <button class="btn" data-go="join">Войти по коду</button>
+        <button class="btn yellow" id="btn-training">Тренировка с ботами</button>
+        <button class="btn ghost" data-go="settings">Настройки</button>
+      </div>
+      <div class="controls-help">
+        <b>Управление:</b> WASD · Пробел прыжок · Shift бег · Ctrl присесть · ЛКМ огонь · ПКМ прицел · R перезарядка · G граната · 1–8 / колесо оружие · Tab счёт · Esc пауза
+      </div>
+    </section>
+
+    <section id="screen-create" class="screen hidden">
+      <div class="panel wide">
+        <h2 id="create-title">Новая комната</h2>
+        <div class="grid2">
+          <div>
+            <div class="field"><span>Карта</span><div id="map-cards" class="cards"></div></div>
+            <div class="field"><span>Режим</span>
+              <div class="seg" id="opt-mode">
+                <button data-v="dm">Все против всех</button>
+                <button data-v="tdm">Команда на команду</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="field"><span>Лимит убийств</span><div class="seg" id="opt-score"></div></div>
+            <div class="field"><span>Время матча, мин</span><div class="seg" id="opt-time"></div></div>
+            <div class="field"><span>Игроков максимум</span><div class="seg" id="opt-max"></div></div>
+            <div class="field"><span>Боты: <b id="bots-val">0</b></span><input type="range" id="opt-bots" min="0" max="7" step="1"></div>
+            <div class="field"><span>Сложность ботов</span>
+              <div class="seg" id="opt-skill">
+                <button data-v="easy">Лёгкие</button>
+                <button data-v="normal">Средние</button>
+                <button data-v="hard">Сложные</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="error" id="create-error"></div>
+        <div class="row end">
+          <button class="btn ghost" id="create-back">Назад</button>
+          <button class="btn primary" id="create-go">Создать</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-join" class="screen hidden">
+      <div class="panel">
+        <h2>Войти в комнату</h2>
+        <p class="muted">Попросите друга скопировать код комнаты или ссылку-приглашение.</p>
+        <input id="join-code" class="code-input" maxlength="5" placeholder="ABCDE" autocomplete="off" spellcheck="false">
+        <div class="error" id="join-error"></div>
+        <div class="row end">
+          <button class="btn ghost" data-go="menu">Назад</button>
+          <button class="btn primary" id="join-go">Войти</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-lobby" class="screen hidden">
+      <div class="panel wide lobby">
+        <h2>Лобби</h2>
+        <div class="lobby-head">
+          <div>
+            <div class="muted small" id="lobby-kind">Код комнаты</div>
+            <div class="room-code" id="lobby-code">-----</div>
+          </div>
+          <div class="row">
+            <button class="btn small" id="copy-code">Копировать код</button>
+            <button class="btn small" id="copy-link">Ссылка-приглашение</button>
+          </div>
+        </div>
+        <div class="grid2">
+          <div>
+            <div class="section-title">Игроки <span id="lobby-count" class="muted"></span></div>
+            <div id="lobby-teams"></div>
+            <button class="btn small ghost" id="switch-team">Сменить команду</button>
+          </div>
+          <div>
+            <div class="section-title">Матч</div>
+            <div id="lobby-settings" class="summary"></div>
+            <button class="btn small ghost" id="edit-settings">Изменить настройки</button>
+            <div class="section-title">Чат</div>
+            <div id="chat-log"></div>
+            <input id="chat-input" maxlength="120" placeholder="Сообщение и Enter" autocomplete="off">
+          </div>
+        </div>
+        <div class="row end">
+          <button class="btn danger" id="lobby-leave">Выйти</button>
+          <button class="btn" id="lobby-ready">Готов</button>
+          <button class="btn primary" id="lobby-start">Начать матч</button>
+        </div>
+        <div class="muted small" id="lobby-hint"></div>
+      </div>
+    </section>
+
+    <section id="screen-settings" class="screen hidden">
+      <div class="panel wide">
+        <h2>Настройки</h2>
+        <div class="grid2">
+          <div>
+            <div class="section-title group">Мышь и управление</div>
+            <div class="field"><span>Чувствительность мыши: <b id="sens-val"></b></span>
+              <div class="range-num"><input type="range" id="set-sens" min="0.05" max="5" step="0.01"><input type="number" id="set-sens-num" min="0.05" max="5" step="0.01"></div>
+            </div>
+            <label class="field"><span>Чувствительность в прицеле: <b id="ads-val"></b></span><input type="range" id="set-ads" min="0.2" max="2" step="0.05"></label>
+            <label class="check"><input type="checkbox" id="set-invert"> Инвертировать ось Y</label>
+            <div class="modes">
+              <span>Прицел</span><div class="seg" id="set-aim-mode"></div>
+              <span>Присед</span><div class="seg" id="set-crouch-mode"></div>
+              <span>Бег</span><div class="seg" id="set-sprint-mode"></div>
+            </div>
+          </div>
+          <div>
+            <div class="section-title group">Графика</div>
+            <div class="field"><span>Стиль графики</span><div class="seg" id="set-style"></div><small class="muted small" id="style-hint"></small></div>
+            <div class="field"><span>Качество графики</span><div class="seg" id="set-quality"></div></div>
+            <label class="field"><span>Поле зрения (FOV): <b id="fov-val"></b></span><input type="range" id="set-fov" min="60" max="100" step="1"></label>
+            <label class="field"><span>Масштаб рендера: <b id="scale-val"></b></span><input type="range" id="set-scale" min="50" max="100" step="5"></label>
+            <div class="field"><span>Дальность прорисовки</span><div class="seg" id="set-draw"></div></div>
+            <label class="check"><input type="checkbox" id="set-bob"> Покачивание камеры и оружия</label>
+            <label class="check"><input type="checkbox" id="set-shake"> Тряска экрана</label>
+            <label class="check"><input type="checkbox" id="set-fps"> Счётчик FPS</label>
+            <div class="section-title group">Звук</div>
+            <label class="field"><span>Общая громкость: <b id="vol-val"></b></span><input type="range" id="set-vol" min="0" max="1" step="0.05"></label>
+            <label class="field"><span>Эффекты: <b id="fx-val"></b></span><input type="range" id="set-fxvol" min="0" max="1" step="0.05"></label>
+            <label class="field"><span>Сигналы: <b id="ui-val"></b></span><input type="range" id="set-uivol" min="0" max="1" step="0.05"></label>
+          </div>
+        </div>
+        <div class="row end">
+          <button class="btn primary" id="settings-done">Готово</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-pause" class="screen hidden">
+      <div class="panel">
+        <h2>Пауза</h2>
+        <p class="muted small" id="pause-code"></p>
+        <button class="btn primary" id="pause-resume">Продолжить</button>
+        <button class="btn" id="pause-settings">Настройки</button>
+        <button class="btn" id="pause-invite">Скопировать приглашение</button>
+        <button class="btn danger" id="pause-leave">Покинуть матч</button>
+      </div>
+    </section>
+
+    <section id="screen-results" class="screen hidden">
+      <div class="panel wide">
+        <h2 id="results-title">Матч окончен</h2>
+        <div id="results-sub" class="muted"></div>
+        <table class="results"><thead><tr><th>#</th><th>Игрок</th><th>Убийства</th><th>Смерти</th><th>У/С</th></tr></thead><tbody id="results-body"></tbody></table>
+        <div class="row end"><button class="btn primary" id="results-ok">В лобби</button></div>
+      </div>
+    </section>
+
+    <section id="screen-loading" class="screen hidden">
+      <div class="loader"><div class="spinner"></div><div id="loading-text">Загрузка…</div></div>
+    </section>
+
+    <div id="notice"></div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
