@@ -33,22 +33,23 @@
     <div id="pickup-hint">Здоровье полное</div>
     <div id="click-hint">Кликните, чтобы играть</div>
     <div id="reload-bar"><span>ПЕРЕЗАРЯДКА</span><div class="track"><div id="reload-fill"></div></div></div>
-    <div id="bottom-left" class="plate">
-      <div class="hp-heart ico" data-icon="heart"></div>
+    <div id="bottom-left">
+      <div class="hp-cross"></div>
+      <span id="hp-text">100</span>
       <div class="hp-body">
-        <span id="hp-text">100</span>
+        <div class="hp-label">ЗДОРОВЬЕ</div>
         <div class="hp-bar"><div id="hp-fill"></div><div class="hp-ticks"></div></div>
       </div>
     </div>
     <div id="bottom-right">
-      <div class="plate ammo-plate">
+      <div class="slots-row"><div class="nade"><span id="nade-icon" class="wicon"></span><span id="nade-count">2</span><span class="key">G</span></div><div id="slots"></div></div>
+      <div class="ammo-plate">
         <div id="weapon-icon" class="wicon"></div>
         <div class="ammo-col">
-          <div class="ammo"><span class="ico bullet" data-icon="bullet"></span><span id="ammo-cur">0</span><span class="sep">/</span><span id="ammo-max">0</span></div>
+          <div class="ammo"><span id="ammo-cur">0</span><span class="sep">/</span><span id="ammo-max">0</span></div>
           <div id="weapon-name"></div>
         </div>
       </div>
-      <div class="slots-row"><div class="nade plate"><span id="nade-icon" class="wicon"></span><span id="nade-count">2</span><span class="key">G</span></div><div id="slots"></div></div>
     </div>
     <div id="death">
       <div class="ribbon"><span class="ico" data-icon="skull"></span><span class="title">ВЫ ПОГИБЛИ</span></div>

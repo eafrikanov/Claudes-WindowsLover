@@ -13,8 +13,6 @@ export const WEAPON_ICONS = {
 };
 
 export const ICONS = {
-  heart: svg('0 0 32 32', '<path d="M16 28C6 21 2 16 2 10.5 2 6.4 5.2 3 9.2 3c2.7 0 5 1.5 6.8 4 1.8-2.5 4.1-4 6.8-4C26.8 3 30 6.4 30 10.5 30 16 26 21 16 28Z"/><path class="hl" d="M7 9.5c0-2 1.3-3.4 3-3.6"/>'),
-  bullet: svg('0 0 16 40', '<path d="M3 16C3 8 8 2 8 2s5 6 5 14v4H3Z" class="tip"/><path d="M2 20H14V37H2Z"/>'),
   clock: svg('0 0 32 32', '<circle cx="16" cy="17" r="12"/><path class="dk" d="M15 9h3v8h6v3h-9Z"/>'),
   skull: svg('0 0 32 32', '<path d="M16 3C8.8 3 4 8 4 14.5c0 4 1.8 6.6 4 8V28h16v-5.5c2.2-1.4 4-4 4-8C28 8 23.2 3 16 3Z"/><circle class="dk" cx="11" cy="15" r="3.4"/><circle class="dk" cx="21" cy="15" r="3.4"/><path class="dk" d="M14.5 22h3l-1.5-3Z"/>'),
   head: svg('0 0 32 32', '<circle cx="16" cy="16" r="12"/><circle class="dk" cx="16" cy="16" r="6"/><circle cx="16" cy="16" r="2.5"/>'),
