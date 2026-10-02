@@ -308,6 +308,13 @@ table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
   transition: all .2s cubic-bezier(.3,1.6,.6,1); pointer-events: none; font-size: 16px; max-width: calc(100vw - 32px);
 }
 #notice.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+#net-banner {
+  position: fixed; left: 50%; top: 22px; transform: translateX(-50%); z-index: 5; pointer-events: none;
+  background: linear-gradient(180deg, #ff7a6b, #d9412f); color: #fff; text-shadow: var(--outline-s);
+  border: 3px solid var(--ink); box-shadow: 0 5px 0 var(--ink); padding: 10px 20px; border-radius: 14px; font-size: 16px;
+  max-width: calc(100vw - 32px); animation: net-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes net-pulse { to { opacity: .75; } }
 
 /* ——— HUD ——— */
 #hud { position: fixed; inset: 0; pointer-events: none; isolation: isolate; }
@@ -497,6 +504,9 @@ table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
 #scoreboard td i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 8px; border: 2px solid var(--ink); vertical-align: -1px; }
 #scoreboard tr.me td { background: #4a5f94; }
 #scoreboard tr.dead td { opacity: .6; }
+#scoreboard td.net { color: var(--muted); font-size: 13px; white-space: nowrap; }
+#scoreboard td.net.turn, #scoreboard td.net.relay { color: #ffd166; }
+#scoreboard td.net.lost { color: #ff7a6b; }
 #scoreboard tr.team td { font-size: 17px; text-shadow: var(--outline-s); }
 #scoreboard tr.team.t0 td { background: var(--team-blue); }
 #scoreboard tr.team.t1 td { background: var(--team-red); }

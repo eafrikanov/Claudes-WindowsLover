@@ -7,6 +7,16 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+const NET_KINDS = { host: 'хост', p2p: 'прямое', turn: 'TURN', relay: 'ретранслятор', lost: 'нет связи' };
+
+function netCell(p) {
+  if (p.bot) return '<td class="net">бот</td>';
+  const n = p.net;
+  if (!n) return '<td class="net"></td>';
+  const ms = n.kind === 'host' || n.kind === 'lost' || !n.ms ? '' : `${n.ms} мс · `;
+  return `<td class="net ${n.kind}">${ms}${NET_KINDS[n.kind] || ''}</td>`;
+}
+
 export class Hud {
   constructor() {
     this.el = {
@@ -144,9 +154,9 @@ export class Hud {
     this.el.board.classList.toggle('show', show);
     if (!show) return;
     const rows = [...roster].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
-    const line = (p) => `<tr class="${p.id === localId ? 'me' : ''}${p.alive ? '' : ' dead'}"><td><i style="background:${p.color}"></i>${esc(p.name)}</td><td>${p.kills}</td><td>${p.deaths}</td></tr>`;
+    const line = (p) => `<tr class="${p.id === localId ? 'me' : ''}${p.alive ? '' : ' dead'}"><td><i style="background:${p.color}"></i>${esc(p.name)}</td><td>${p.kills}</td><td>${p.deaths}</td>${netCell(p)}</tr>`;
     if (teams) {
-      this.el.boardBody.innerHTML = [0, 1].map((t) => `<tr class="team t${t}"><td>${t ? 'Красные' : 'Синие'}</td><td colspan="2">${teamScores[t]}</td></tr>${rows.filter((p) => p.team === t).map(line).join('')}`).join('');
+      this.el.boardBody.innerHTML = [0, 1].map((t) => `<tr class="team t${t}"><td>${t ? 'Красные' : 'Синие'}</td><td colspan="3">${teamScores[t]}</td></tr>${rows.filter((p) => p.team === t).map(line).join('')}`).join('');
     } else {
       this.el.boardBody.innerHTML = rows.map(line).join('');
     }

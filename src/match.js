@@ -90,9 +90,10 @@ export class HostMatch {
     }));
   }
 
+  // sp — последняя точка возрождения: по ней вернувшийся после обрыва игрок узнаёт, где он сейчас
   snapshot() {
     return {
-      roster: this.roster(),
+      roster: this.roster().map((p) => ({ ...p, sp: this.players.get(p.id).sp })),
       pickups: this.pickups.map((p) => p.on),
       left: Math.max(0, this.endAt - this.time),
     };
@@ -147,7 +148,8 @@ export class HostMatch {
       p.w = this.botWeapon();
       Object.assign(p.brain, { target: null, path: null, ammo: WEAPONS[p.w].mag, reloadUntil: 0 });
     }
-    this.emit({ t: 'spawn', id: p.id, p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], yaw: r2(p.yaw), w: p.w });
+    p.sp = { p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], yaw: r2(p.yaw) };
+    this.emit({ t: 'spawn', id: p.id, p: p.sp.p, yaw: p.sp.yaw, w: p.w });
   }
 
   // ts — время отправителя (мс по его часам), пересылается как есть: получатель сам сводит часы.

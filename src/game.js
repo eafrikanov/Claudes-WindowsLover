@@ -156,8 +156,8 @@ export class Game {
     this.send = () => {};
     this.stateRate = STATE_RATE;
     this.onPause = () => {};
-    this.onTick = null;
     this.avatars = new Map();
+    this.netInfo = new Map();
     this.roster = new Map();
     this.orbit = 0;
     this.last = performance.now();
@@ -658,7 +658,46 @@ export class Game {
       case 'roster':
         this.syncRoster(msg.roster);
         break;
+      case 'sync':
+        this.resync(msg.start.snapshot);
+        break;
       default:
+    }
+  }
+
+  // После обрыва связи часть событий могла потеряться: сводим счёт, жизни и аптечки со снимком хоста
+  resync(snap) {
+    const me = this.me;
+    const deaths = this.roster.get(this.localId)?.deaths ?? 0;
+    this.syncRoster(snap.roster);
+    snap.pickups.forEach((on, i) => this.setPickup(i, on));
+    this.hud.clock(snap.left);
+    for (const p of snap.roster) {
+      const av = this.avatars.get(p.id);
+      if (!av) continue;
+      if (!p.alive && !av.dead) av.die();
+      else if (p.alive && av.dead && p.sp) {
+        av.teleport(...p.sp.p);
+        av.revive();
+      }
+    }
+    const r = this.roster.get(this.localId);
+    if (!r || !me) return;
+    if (!r.alive && me.alive) {
+      me.alive = false;
+      me.hp = 0;
+      me.deathT = 0;
+      me.killer = null;
+      me.sprinting = false;
+      this.resetToggles();
+      this.hud.health(0);
+      this.hud.death(true, 'Вас убили, пока не было связи', RESPAWN_DELAY);
+      this.hud.scope(false);
+    } else if (r.alive && r.sp && (!me.alive || r.deaths !== deaths)) {
+      this.handle({ t: 'spawn', id: this.localId, p: r.sp.p, yaw: r.sp.yaw, w: me.weapon });
+    } else if (r.alive && me.alive) {
+      me.hp = r.hp;
+      this.hud.health(me.hp);
     }
   }
 
@@ -1055,7 +1094,6 @@ export class Game {
       }
     }
     if (this.running) {
-      if (this.onTick) this.onTick(dt);
       this.updateLocal(dt);
       this.projectiles.update(dt, this.map.colliders, this.avatars);
       const now = this.now;
@@ -1074,7 +1112,7 @@ export class Game {
       });
       this.hud.update(dt);
       this.hud.clickHint(!this.locked && !this.paused);
-      this.hud.scoreboard(this.tabHeld, [...this.roster.values()].map((p) => ({ ...p, color: this.displayColor(p) })), this.localId, this.settings.mode === 'tdm', this.teamScores());
+      this.hud.scoreboard(this.tabHeld, [...this.roster.values()].map((p) => ({ ...p, color: this.displayColor(p), net: this.netInfo.get(p.id) })), this.localId, this.settings.mode === 'tdm', this.teamScores());
     } else {
       this.orbit += dt * 0.05;
       const r = this.map.half * 0.9;

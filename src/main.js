@@ -1,6 +1,7 @@
 import { Game, TEAM_COLORS, QUALITY, DRAW_DISTANCE } from './game.js';
 import { Sound } from './audio.js';
-import { Net, randomCode, normalizeCode } from './net.js';
+import { Net, randomCode, normalizeCode, LOST } from './net.js';
+import { every } from './ticker.js';
 import { HostMatch, makeBots, STATE_RATE, RELAY_STATE_RATE } from './match.js';
 import { MAPS, MAP_IDS } from './map.js';
 import { esc } from './hud.js';
@@ -18,6 +19,8 @@ const DEFAULT_ROOM = { map: MAP_IDS[0], mode: 'tdm', scoreLimit: 20, timeLimit: 
 const MODE_NAMES = { dm: 'Все против всех', tdm: 'Команда на команду' };
 const SKILL_NAMES = { easy: 'Лёгкие', normal: 'Средние', hard: 'Сложные' };
 const KEEP_PARAMS = ['peerHost', 'peerPort', 'peerPath', 'peerSecure', 'nolock'];
+const HOST_TICK_MS = 16;
+const NET_INFO_MS = 2000;
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,6 +51,11 @@ const state = {
   localId: null,
   lobby: { players: [], settings: { ...DEFAULT_ROOM }, state: 'lobby' },
   match: null,
+  mid: 0,
+  lastEnd: null,
+  stopHostLoop: null,
+  stopNetInfo: null,
+  netInfo: new Map(),
   inGame: false,
   loading: false,
   queue: [],
@@ -244,6 +252,7 @@ async function createRoom(settings, online) {
   };
   net.onJoin = () => {};
   net.onMessage = hostOnMessage;
+  net.onResync = sendSync;
   net.onLeave = (id) => {
     const p = state.lobby.players.find((x) => x.id === id);
     state.lobby.players = state.lobby.players.filter((x) => x.id !== id);
@@ -253,7 +262,41 @@ async function createRoom(settings, online) {
   };
   preloadMap(settings.map);
   broadcastLobby();
-  if (online) show('lobby');
+  if (online) {
+    state.stopNetInfo = every(NET_INFO_MS, sendNetInfo);
+    show('lobby');
+  }
+}
+
+// Вернувшемуся игроку или сменившему канал — всё, что он мог пропустить
+function sendSync(id) {
+  if (!state.lobby.players.some((p) => p.id === id)) return;
+  state.net.sendTo(id, lobbyMessage());
+  if (state.lobby.state === 'game' && state.match) state.net.sendTo(id, { t: 'sync', mid: state.mid, start: startMessage() });
+  else if (state.lastEnd) state.net.sendTo(id, state.lastEnd);
+}
+
+function startMessage() {
+  const s = state.lobby.settings;
+  return { t: 'start', mid: state.mid, map: s.map, settings: s, roster: state.match.roster(), snapshot: state.match.snapshot() };
+}
+
+function sendNetInfo() {
+  if (!state.host || !state.online || !state.net) return;
+  const l = state.net.info().map((i) => [i.id, i.ms, i.kind]);
+  l.push([state.localId, 0, 'host']);
+  const msg = { t: 'net', l };
+  state.net.broadcast(msg);
+  applyNetInfo(msg);
+}
+
+function applyNetInfo(msg) {
+  if (!Array.isArray(msg.l)) return;
+  const lost = (m) => [...m].filter(([, v]) => v.kind === 'lost').map(([id]) => id).join();
+  const before = lost(state.netInfo);
+  state.netInfo = new Map(msg.l.map(([id, ms, kind]) => [id, { ms, kind }]));
+  game.netInfo = state.netInfo;
+  if (current === 'lobby' && lost(state.netInfo) !== before) renderLobby();
 }
 
 function teamCounts() {
@@ -313,7 +356,7 @@ function hostOnMessage(id, msg) {
       for (const line of state.chat.slice(-20)) state.net.sendTo(id, { t: 'chat', ...line });
       systemChat(`${p.name} зашёл в комнату`);
       if (lobby.state === 'game' && m) {
-        state.net.sendTo(id, { t: 'start', map: lobby.settings.map, settings: lobby.settings, roster: m.roster(), snapshot: m.snapshot() });
+        state.net.sendTo(id, startMessage());
         m.join({ id: p.id, name: p.name, color: p.color, team: p.team });
       }
       broadcastLobby();
@@ -340,6 +383,7 @@ function hostOnMessage(id, msg) {
       state.net.broadcast({ t: 'chat', ...line });
       break;
     }
+    case 'resync': sendSync(id); break;
     case 'st': m?.onState(id, msg); break;
     case 'shot': m?.onShot(id, msg); break;
     case 'hit': m?.onHit(id, msg); break;
@@ -350,6 +394,10 @@ function hostOnMessage(id, msg) {
 }
 
 function emitFromHost(msg, except, route) {
+  if (msg.t === 'end') {
+    msg.mid = state.mid;
+    state.lastEnd = msg;
+  }
   if (state.online) state.net.broadcast(msg, except, route);
   if (except !== state.localId && route !== 'relay') dispatchGame(msg);
 }
@@ -371,13 +419,36 @@ async function startMatchHost() {
   }
   const roster = [...humans, ...bots];
   lobby.state = 'game';
+  state.mid++;
+  state.lastEnd = null;
   broadcastLobby();
-  state.net.broadcast({ t: 'start', map: s.map, settings: s, roster });
-  await beginMatch({ map: s.map, settings: s, roster });
+  state.net.broadcast({ t: 'start', mid: state.mid, map: s.map, settings: s, roster });
+  await beginMatch({ mid: state.mid, map: s.map, settings: s, roster });
   const match = new HostMatch({ map: game.map, settings: s, roster, localId: state.localId, emit: emitFromHost });
   state.match = match;
-  game.onTick = (dt) => match.update(dt);
   match.start();
+  startHostLoop(match);
+}
+
+// Матч хоста идёт по таймеру, а не по кадрам: не замирает в свёрнутой вкладке и не замедляется при низком FPS
+function startHostLoop(match) {
+  stopHostLoop();
+  let last = performance.now();
+  state.stopHostLoop = every(HOST_TICK_MS, () => {
+    const t = performance.now();
+    let dt = Math.min(1, (t - last) / 1000);
+    last = t;
+    while (dt > 1e-4) {
+      const step = Math.min(dt, 0.05);
+      match.update(step);
+      dt -= step;
+    }
+  });
+}
+
+function stopHostLoop() {
+  state.stopHostLoop?.();
+  state.stopHostLoop = null;
 }
 
 // ——— клиент ———
@@ -392,7 +463,17 @@ async function joinRoom(code) {
   net.onMessage = (_, msg) => clientOnMessage(msg);
   net.onClosed = (reason) => {
     leaveRoom();
-    notice(reason === 'Соединение с хостом потеряно' ? 'Хост закрыл комнату или связь потеряна' : reason);
+    notice(reason === LOST ? 'Хост закрыл комнату или связь потеряна' : reason);
+  };
+  let wasOnline = true;
+  let wasRoute = null;
+  net.onStatus = () => {
+    $('net-banner').classList.toggle('hidden', net.online);
+    game.stateRate = net.route === 'relay' ? RELAY_STATE_RATE : STATE_RATE;
+    // Хост и сам пришлёт снимок, но его ответ мог потеряться вместе с обрывом
+    if (net.online && (!wasOnline || (wasRoute && net.route !== wasRoute))) net.send({ t: 'resync' });
+    wasOnline = net.online;
+    wasRoute = net.route;
   };
   loading('Подключаемся…');
   await net.join(code);
@@ -418,7 +499,14 @@ function clientOnMessage(msg) {
       addChat(msg);
       break;
     case 'start':
-      beginMatch({ map: msg.map, settings: msg.settings, roster: msg.roster, snapshot: msg.snapshot });
+      beginMatch(msg);
+      break;
+    case 'sync':
+      if ((state.inGame || state.loading) && state.mid === msg.mid) dispatchGame(msg);
+      else beginMatch(msg.start);
+      break;
+    case 'net':
+      applyNetInfo(msg);
       break;
     case 'full':
       leaveRoom();
@@ -458,7 +546,8 @@ async function doJoin() {
 // ——— общий ход матча ———
 function dispatchGame(msg) {
   if (msg.t === 'end') {
-    onMatchEnd(msg);
+    // Повтор итогов после переподключения нужен, только если игрок ещё в том матче
+    if ((state.inGame || state.loading) && msg.mid === state.mid) onMatchEnd(msg);
     return;
   }
   // Состояния, накопленные за загрузку карты, устарели и только сбили бы оценку задержки
@@ -469,13 +558,18 @@ function dispatchGame(msg) {
   }
 }
 
-async function beginMatch({ map, settings, roster, snapshot }) {
+async function beginMatch({ mid, map, settings, roster, snapshot }) {
+  if (state.inGame) {
+    game.stopMatch();
+    state.inGame = false;
+  }
+  state.mid = mid;
   state.loading = true;
   state.queue = [];
   loading(`Загрузка карты «${MAPS[map].name}»…`);
   await new Promise((r) => setTimeout(r, 50));
   game.send = state.host ? routeHostLocal : (msg) => state.net?.send(msg);
-  game.stateRate = !state.host && state.net?.mode === 'relay' ? RELAY_STATE_RATE : STATE_RATE;
+  game.stateRate = !state.host && state.net?.route === 'relay' ? RELAY_STATE_RATE : STATE_RATE;
   await game.startMatch({ mapId: map, localId: state.localId, roster, settings, snapshot });
   state.loading = false;
   state.inGame = true;
@@ -490,7 +584,7 @@ function onMatchEnd(msg) {
     state.queue.push(msg);
     return;
   }
-  game.onTick = null;
+  stopHostLoop();
   game.stopMatch();
   state.inGame = false;
   state.match = null;
@@ -528,7 +622,13 @@ $('results-ok').addEventListener('click', () => {
 });
 
 function leaveRoom() {
-  game.onTick = null;
+  stopHostLoop();
+  state.stopNetInfo?.();
+  state.stopNetInfo = null;
+  state.netInfo = new Map();
+  game.netInfo = state.netInfo;
+  state.lastEnd = null;
+  $('net-banner').classList.add('hidden');
   if (state.inGame || game.running) game.stopMatch();
   state.inGame = false;
   state.loading = false;
@@ -544,6 +644,7 @@ function playerRow(p) {
   const me = p.id === state.localId;
   const tags = [];
   if (p.host) tags.push('<span class="tag host">хост</span>');
+  else if (state.netInfo.get(p.id)?.kind === 'lost') tags.push('<span class="tag">нет связи</span>');
   else tags.push(p.ready ? '<span class="tag ready">готов</span>' : '<span class="tag">не готов</span>');
   const kick = state.host && !p.host ? `<button class="kick" data-kick="${esc(p.id)}" title="Исключить">✕</button>` : '';
   const color = state.lobby.settings.mode === 'tdm' ? TEAM_COLORS[p.team] : p.color;
@@ -793,6 +894,9 @@ async function boot() {
     show('menu');
   }
 }
+
+// Закрытие вкладки: прощаемся сразу, чтобы остальные не ждали возвращения игрока
+window.addEventListener('pagehide', () => state.net?.close());
 
 window.__arena = { game, state };
 boot();
