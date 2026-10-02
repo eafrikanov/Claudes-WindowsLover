@@ -553,6 +553,7 @@ export class Game {
       }
       case 'hp': {
         const r = this.roster.get(msg.id);
+        const healed = r && msg.hp > r.hp;
         if (r) r.hp = msg.hp;
         if (msg.id === this.localId) {
           const me = this.me;
@@ -572,7 +573,7 @@ export class Game {
             me.vel.z += msg.kb[2];
             me.onGround = false;
           }
-        } else {
+        } else if (!healed) {
           this.avatars.get(msg.id)?.flashHit();
         }
         break;

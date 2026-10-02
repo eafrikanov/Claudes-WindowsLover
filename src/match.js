@@ -5,6 +5,7 @@ import { NavGraph, JUMP } from './nav.js';
 export const RESPAWN_DELAY = 2;
 const PICKUP_RESPAWN = 20;
 const PICKUP_HEAL = 50;
+const KILL_HEAL = 70;
 // Частота состояний: 30 Гц по WebRTC; публичным MQTT-брокерам оставляем прежние 20 Гц
 export const STATE_RATE = 1 / 30;
 export const RELAY_STATE_RATE = 1 / 20;
@@ -226,6 +227,10 @@ export class HostMatch {
     a.kills++;
     v.respawnAt = this.time + RESPAWN_DELAY;
     this.emit({ t: 'kill', k: a.id, v: v.id, w, h: head, kk: a.kills, vd: v.deaths });
+    if (a.alive) {
+      a.hp = Math.min(100, a.hp + KILL_HEAL);
+      this.emit({ t: 'hp', id: a.id, hp: Math.round(a.hp) });
+    }
     this.checkEnd();
   }
 
