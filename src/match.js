@@ -381,7 +381,7 @@ export class HostMatch {
     let moveX = 0;
     let moveZ = 0;
     let wantYaw = b.yaw;
-    let speed = 4.6;
+    let speed = 3.68;
     let jump = false;
 
     if (seen) {
@@ -399,7 +399,7 @@ export class HostMatch {
       if (br.strafeT <= 0) { br.strafe = Math.random() < 0.5 ? -1 : 1; br.strafeT = 0.6 + Math.random(); }
       moveX = fx * forward + -fz * br.strafe * 0.8;
       moveZ = fz * forward + fx * br.strafe * 0.8;
-      speed = 3.8;
+      speed = 3.04;
 
       let yawErr = wantYaw - b.yaw;
       yawErr = Math.atan2(Math.sin(yawErr), Math.cos(yawErr));
