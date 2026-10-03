@@ -406,6 +406,7 @@ export class Game {
     this.running = false;
     this.paused = false;
     this.hud.show(false);
+    this.hud.protect(false);
     this.hud.scope(false);
     this.hud.scoreboard(false);
     this.hud.death(false);
@@ -593,6 +594,8 @@ export class Game {
           me.deathT = 0;
           me.killer = msg.k;
           me.sprinting = false;
+          me.protUntil = 0;
+          this.hud.protect(false);
           this.resetToggles();
           this.hud.health(0);
           this.hud.death(true, `Вас убил <b style="color:${k ? this.displayColor(k) : '#fff'}">${esc(k?.name || '???')}</b> · ${esc(WEAPONS[msg.w]?.name || '')}${msg.h ? ' · в голову' : ''}`, RESPAWN_DELAY);
@@ -620,6 +623,8 @@ export class Game {
           me.alive = true;
           me.waiting = false;
           me.hp = 100;
+          me.protUntil = msg.pr ? this.now + msg.pr : 0;
+          this.hud.protect(!!msg.pr);
           this.resetToggles();
           me.ammo = WEAPONS.map((w) => w.mag);
           me.grenades = GRENADES;
@@ -638,11 +643,20 @@ export class Game {
             av.teleport(...msg.p);
             av.yaw = msg.yaw;
             av.revive();
+            av.protect(msg.pr ? this.now + msg.pr : 0);
             av.setWeapon(WEAPONS[msg.w]?.id || 'rifle');
           }
         }
         break;
       }
+      case 'unprot':
+        if (msg.id === this.localId) {
+          this.me.protUntil = 0;
+          this.hud.protect(false);
+        } else {
+          this.avatars.get(msg.id)?.protect(0);
+        }
+        break;
       case 'clock':
         this.hud.clock(msg.left);
         break;
@@ -706,6 +720,10 @@ export class Game {
     const me = this.me;
     const now = this.now;
     const def = WEAPONS[me.weapon];
+    if (me.protUntil && now >= me.protUntil) {
+      me.protUntil = 0;
+      this.hud.protect(false);
+    }
     const aiming = this.aimHeld && me.alive && me.reloadUntil <= now && !def.noAds;
     const zoom = aiming ? def.adsFov / this.prefs.fov : 1;
     const sens = this.prefs.sensitivity * 0.0029 * (aiming ? Math.max(0.25, zoom) * this.prefs.adsSens : 1);
@@ -902,7 +920,9 @@ export class Game {
       }
       const end = new THREE.Vector3().copy(origin).addScaledVector(dir, t);
       if (!firstEnd) firstEnd = end;
-      if (target) {
+      if (target && this.avatars.get(target).protUntil > this.now) {
+        this.effects.particles(end, V1.copy(dir).negate(), 5, new THREE.Color(0.6, 0.85, 1), 3, 1.5, 10, 0.2, 1.2);
+      } else if (target) {
         let dmg = def.damage * (head ? def.head : 1);
         if (def.id === 'shotgun') dmg *= THREE.MathUtils.clamp(1 - (t - 8) / 30, 0.3, 1);
         const acc = hits.get(target) || { d: 0, h: false };
@@ -984,7 +1004,7 @@ export class Game {
     this.vm.fire();
     this.sound.swish();
     const r2 = (v) => Math.round(v * 100) / 100;
-    if (best) {
+    if (best && !(this.avatars.get(best.id).protUntil > this.now)) {
       const end = origin.clone().addScaledVector(best.dir, best.t);
       this.effects.blood(end, best.dir);
       const kb = best.dir.clone().setY(0.4).normalize().multiplyScalar(5);
@@ -1034,7 +1054,7 @@ export class Game {
     const from = [point.x + normal[0] * 0.3, point.y + normal[1] * 0.3, point.z + normal[2] * 0.3];
     let anyHit = false;
     for (const [id, av] of this.avatars) {
-      if (av.dead || !av.group.visible) continue;
+      if (av.dead || !av.group.visible || av.protUntil > this.now) continue;
       const pl = this.roster.get(id);
       if (pl && this.isFriend(pl)) continue;
       const c = av.group.position.clone().setY(av.group.position.y + 1);

@@ -3,6 +3,7 @@ import { moveBody, lineOfSight, PLAYER_RADIUS, STAND_HEIGHT, GRAVITY, JUMP_SPEED
 import { NavGraph, JUMP } from './nav.js';
 
 export const RESPAWN_DELAY = 2;
+export const SPAWN_PROTECT = 1.5;
 const PICKUP_RESPAWN = 20;
 const PICKUP_HEAL = 50;
 const KILL_HEAL = 70;
@@ -68,7 +69,7 @@ export class HostMatch {
       ...p,
       hp: 100, alive: false, kills: 0, deaths: 0,
       pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, w: p.bot ? this.botWeapon() : 0, c: 0,
-      ts: 0, v: [0, 0, 0], relayTs: 0, respawnAt: 0,
+      ts: 0, v: [0, 0, 0], relayTs: 0, respawnAt: 0, prot: 0,
     };
     if (p.bot) {
       rec.vel = { x: 0, y: 0, z: 0 };
@@ -149,7 +150,20 @@ export class HostMatch {
       Object.assign(p.brain, { target: null, path: null, ammo: WEAPONS[p.w].mag, reloadUntil: 0 });
     }
     p.sp = { p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z)], yaw: r2(p.yaw) };
-    this.emit({ t: 'spawn', id: p.id, p: p.sp.p, yaw: p.sp.yaw, w: p.w });
+    const msg = { t: 'spawn', id: p.id, p: p.sp.p, yaw: p.sp.yaw, w: p.w };
+    p.prot = 0;
+    if (this.settings.spawnProtect) {
+      p.prot = this.time + SPAWN_PROTECT;
+      msg.pr = SPAWN_PROTECT;
+    }
+    this.emit(msg);
+  }
+
+  // Защиту после появления снимает первый выстрел или бросок самого игрока
+  unprotect(p) {
+    if (p.prot <= this.time) return;
+    p.prot = 0;
+    this.emit({ t: 'unprot', id: p.id });
   }
 
   // ts — время отправителя (мс по его часам), пересылается как есть: получатель сам сводит часы.
@@ -183,6 +197,7 @@ export class HostMatch {
   onShot(id, msg) {
     const p = this.players.get(id);
     if (!p || !p.alive) return;
+    this.unprotect(p);
     const out = { t: 'shot', id, w: msg.w };
     if (Array.isArray(msg.e)) out.e = msg.e;
     if (typeof msg.pid === 'string' && Array.isArray(msg.o) && Array.isArray(msg.v)) {
@@ -202,6 +217,7 @@ export class HostMatch {
     const a = this.players.get(id);
     const v = this.players.get(msg.v);
     if (!a || !v || !a.alive || !v.alive) return;
+    this.unprotect(a);
     const def = WEAPONS[msg.w];
     if (!def) return;
     const max = def.damage * def.head * def.pellets;
@@ -214,7 +230,7 @@ export class HostMatch {
   }
 
   damage(a, v, amount, head, w, kb = null) {
-    if (!v.alive || !this.enemies(a, v) || this.over) return;
+    if (!v.alive || !this.enemies(a, v) || this.over || v.prot > this.time) return;
     v.hp = Math.max(0, v.hp - amount);
     const hp = { t: 'hp', id: v.id, hp: Math.round(v.hp), by: a.id, from: [r2(a.pos.x), r2(a.pos.z)], h: head };
     if (kb) {
@@ -481,6 +497,7 @@ export class HostMatch {
     const sk = this.skill;
     br.nextShot = this.time + Math.max(0.1, def.fireRate * sk.fireMul * (def.auto ? 1 : 1.3));
     br.ammo--;
+    this.unprotect(b);
     if (br.ammo <= 0) br.reloadUntil = this.time + def.reload;
     const moving = Math.hypot(o.vel?.x || 0, o.vel?.z || 0) > 1 ? 0.85 : 1;
     const falloff = def.id === 'shotgun' ? Math.max(0, 1 - dist / 22) : def.id === 'sniper' ? 1 : Math.max(0.25, 1 - dist / 70);

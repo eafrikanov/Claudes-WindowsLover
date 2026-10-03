@@ -2,7 +2,7 @@ import { Game, TEAM_COLORS, QUALITY, DRAW_DISTANCE } from './game.js';
 import { Sound } from './audio.js';
 import { Net, randomCode, normalizeCode, LOST } from './net.js';
 import { every } from './ticker.js';
-import { HostMatch, makeBots, STATE_RATE, RELAY_STATE_RATE } from './match.js';
+import { HostMatch, makeBots, STATE_RATE, RELAY_STATE_RATE, SPAWN_PROTECT } from './match.js';
 import { MAPS, MAP_IDS } from './map.js';
 import { esc } from './hud.js';
 import { STYLE, STYLES, DEFAULT_STYLE } from './style-mc.js';
@@ -15,7 +15,7 @@ const DEFAULT_PREFS = {
   volume: 0.7, fxVolume: 1, uiVolume: 1,
 };
 const INPUT_MODES = { hold: 'Удерживать', toggle: 'Переключать' };
-const DEFAULT_ROOM = { map: MAP_IDS[0], mode: 'tdm', scoreLimit: 20, timeLimit: 10, maxPlayers: 4, bots: 0, botSkill: 'normal' };
+const DEFAULT_ROOM = { map: MAP_IDS[0], mode: 'tdm', scoreLimit: 20, timeLimit: 10, maxPlayers: 4, bots: 0, botSkill: 'normal', spawnProtect: true };
 const MODE_NAMES = { dm: 'Все против всех', tdm: 'Команда на команду' };
 const SKILL_NAMES = { easy: 'Лёгкие', normal: 'Средние', hard: 'Сложные' };
 const KEEP_PARAMS = ['peerHost', 'peerPort', 'peerPath', 'peerSecure', 'nolock'];
@@ -171,6 +171,7 @@ function renderRoomForm() {
   segment($('opt-time'), [5, 10, 15, 20], null, f.timeLimit, (v) => { f.timeLimit = Number(v); renderRoomForm(); });
   segment($('opt-max'), [2, 4, 6, 8], null, f.maxPlayers, (v) => { f.maxPlayers = Number(v); renderRoomForm(); });
   segment($('opt-skill'), ['easy', 'normal', 'hard'], [SKILL_NAMES.easy, SKILL_NAMES.normal, SKILL_NAMES.hard], f.botSkill, (v) => { f.botSkill = v; renderRoomForm(); });
+  segment($('opt-protect'), ['on', 'off'], ['Вкл', 'Выкл'], f.spawnProtect ? 'on' : 'off', (v) => { f.spawnProtect = v === 'on'; renderRoomForm(); });
   $('opt-bots').value = f.bots;
   $('bots-val').textContent = f.bots;
   $('opt-max').parentElement.classList.toggle('hidden', state.formMode === 'training');
@@ -672,6 +673,7 @@ function renderLobby() {
     ['Лимит', `${settings.scoreLimit} убийств`],
     ['Время', `${settings.timeLimit} мин`],
     ['Боты', settings.bots ? `${settings.bots}, ${SKILL_NAMES[settings.botSkill].toLowerCase()}` : 'нет'],
+    ['Защита', settings.spawnProtect ? `${String(SPAWN_PROTECT).replace('.', ',')} с после появления` : 'нет'],
   ].map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
   $('edit-settings').classList.toggle('hidden', !state.host);
   $('lobby-start').classList.toggle('hidden', !state.host);

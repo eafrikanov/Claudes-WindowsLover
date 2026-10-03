@@ -202,6 +202,7 @@ export class Avatar {
     this.deathT = 0;
     this.deathSide = (hashName(name) & 1) ? 1 : -1;
     this.hitT = 0;
+    this.protUntil = 0;
     this.crouch = 0;
     this.pitch = 0;
     this.yaw = 0;
@@ -253,6 +254,18 @@ export class Avatar {
     this.group.position.set(x, y, z);
   }
 
+  // Защита после появления: модель мигает полупрозрачной, пока не истечёт время
+  protect(until) {
+    this.protUntil = until;
+    const on = until > 0;
+    for (const m of Object.values(this.mats)) {
+      if (m.transparent === on) continue;
+      m.transparent = on;
+      m.opacity = 1;
+      m.needsUpdate = true;
+    }
+  }
+
   flashHit() {
     this.hitT = 0.12;
   }
@@ -262,6 +275,7 @@ export class Avatar {
   }
 
   die() {
+    this.protect(0);
     this.dead = true;
     this.deathT = 0;
     this.hitT = 0;
@@ -378,6 +392,12 @@ export class Avatar {
     }
 
     this.tag.position.y = 2.1 - cr * 0.5;
+
+    if (this.protUntil) {
+      const left = this.protUntil - performance.now() / 1000;
+      if (left <= 0) this.protect(0);
+      else for (const m of Object.values(this.mats)) m.opacity = 0.35 + 0.3 * Math.abs(Math.sin(left * 10));
+    }
 
     if (!this.dead) {
       const hit = this.hitT > 0 ? 1 : 0;

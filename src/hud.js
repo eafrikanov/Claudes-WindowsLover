@@ -49,6 +49,10 @@ export class Hud {
     this.el.vignette.style.opacity = hp <= 30 ? String(0.25 + (30 - hp) / 60) : '0';
   }
 
+  protect(on) {
+    this.el.root.classList.toggle('protected', on);
+  }
+
   weapon(i, ammo) {
     const w = WEAPONS[i];
     this.el.wname.textContent = `${w.name} · ${w.kind}`;
