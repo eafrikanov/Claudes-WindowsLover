@@ -28,16 +28,18 @@ const DEFAULT_ICE = [
 let iceCache = null;
 async function iceServers() {
   if (iceCache) return iceCache;
-  let extra = [];
+  // Свой TURN надёжнее перегруженного TURN PeerJS на порту 3478; лишние серверы только замедляют подключение
+  const own = TURN.iceServers || [];
+  let extra = own;
   if (TURN.meteredApp && TURN.meteredApiKey) {
     try {
       const r = await fetch(`https://${TURN.meteredApp}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN.meteredApiKey)}`);
-      if (r.ok) extra = await r.json();
+      if (r.ok) extra = [...extra, ...(await r.json())];
     } catch (err) {
       console.warn('TURN credentials', err);
     }
   }
-  iceCache = [...DEFAULT_ICE, ...extra];
+  iceCache = [...(own.length ? DEFAULT_ICE.slice(0, 1) : DEFAULT_ICE), ...extra];
   return iceCache;
 }
 
